@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 // dev checkout (npm link) shares the repo's db; global installs get ~/.vocab
 const localDb = fileURLToPath(new URL('../data/vocab.db', import.meta.url));
 process.env.VOCAB_DB ??= existsSync(localDb) ? localDb : join(homedir(), '.vocab', 'vocab.db');
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const { fetchWord, WordNotFound } = await import('./dictionary.js');
 const { getEntry, listSaved, listTags, setSaved, recordReview, reviewQueue } = await import('./db.js');
@@ -21,11 +22,14 @@ const body = (s: string | null | undefined) => { if (s) console.log(s); };
 const HELP = `vocab — dictionary + saved words
 
   vocab <word>          look up a word
+  vocab s <word>        look up a word named like a command (list, save…)
+                        (vocab search / vocab -- work too)
   vocab save <word> [-t tag]  save it (tag = where you found it)
   vocab rm <word>       remove from saved
   vocab list [tag]      show saved words
   vocab tags            tag counts
   vocab review          reveal-card pass over saved words
+  vocab version         print version
 `;
 
 function printEntry(e: Entry, saved: { at: string | null; tag: string | null }) {
@@ -33,7 +37,7 @@ function printEntry(e: Entry, saved: { at: string | null; tag: string | null }) 
   const first = e.meanings[0]?.definitions[0];
   head('meaning'); body(first?.text); if (first?.example) console.log(`${D}e.g. ${first.example}${N}`);
   head('purpose');
-  console.log(e.meanings.map(m => m.partOfSpeech).filter(Boolean).join(' · ') || '(unknown)');
+  console.log([...new Set(e.meanings.map(m => m.partOfSpeech).filter(Boolean))].join(' · ') || '(unknown)');
   const syn = e.meanings.flatMap(m => m.definitions.flatMap(d => d.synonyms));
   const ant = e.meanings.flatMap(m => m.definitions.flatMap(d => d.antonyms));
   if (syn.length) console.log(`syn: ${[...new Set(syn)].slice(0, 8).join(', ')}`);
@@ -63,9 +67,14 @@ async function lookup(word: string) {
   }
 }
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-rl.on('close', () => process.exit(0));
-const ask = (q: string) => new Promise<string>(r => rl.question(q, r));
+const rlBox: { it?: ReturnType<typeof createInterface> } = {};
+const ask = (q: string) => {
+  if (!rlBox.it) {
+    rlBox.it = createInterface({ input: process.stdin, output: process.stdout });
+    rlBox.it.on('close', () => process.exit(0));
+  }
+  return new Promise<string>(r => rlBox.it!.question(q, r));
+};
 
 const [cmd, ...rest] = process.argv.slice(2);
 const argText = rest.join(' ').toLowerCase().trim();
@@ -114,6 +123,19 @@ switch (cmd?.toLowerCase()) {
     break;
   }
 
+  case 's':
+  case 'search':
+  case 'lookup':
+  case '--':
+    await lookup(argText);
+    break;
+
+  case 'version':
+  case '--version':
+  case '-v':
+    console.log(VERSION);
+    break;
+
   case 'review': {
     const queue = reviewQueue();
     if (!queue.length) { console.log('nothing to review — save some words first'); break; }
@@ -137,4 +159,4 @@ switch (cmd?.toLowerCase()) {
     await lookup([cmd, ...rest].join(' '));
 }
 
-rl.close();
+rlBox.it?.close();
