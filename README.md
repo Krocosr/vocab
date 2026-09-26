@@ -62,6 +62,10 @@ docker compose up -d --build
 # → http://localhost:8737
 ```
 
+The compose build context points at this repository, so `--build` always
+clones and builds the latest `master` from GitHub — your local checkout is
+not required (to build local changes instead, temporarily set `build: .`).
+
 Or without Docker (Node ≥ 22.5, for `node:sqlite`):
 
 ```sh

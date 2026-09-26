@@ -1,6 +1,6 @@
 services:
   vocab:
-    build: .
+    build: https://github.com/Krocosr/vocab.git#master
     container_name: vocab
     restart: unless-stopped
     ports:
