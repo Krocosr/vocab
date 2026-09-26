@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS entries (
   last_reviewed_at TEXT
 )`);
 
+try { db.exec('ALTER TABLE entries ADD COLUMN saved_tag TEXT'); } catch {}
+
 export interface EntryRow {
   word: string;
   payload: string;
@@ -32,6 +34,7 @@ export interface EntryRow {
 export interface SavedRow {
   word: string;
   saved_at: string;
+  saved_tag: string | null;
   review_count: number;
   known_count: number;
   last_reviewed_at: string | null;
@@ -48,13 +51,19 @@ export const putEntry = (word: string, payload: string) =>
     .run(word, payload, now());
 
 export const listSaved = () =>
-  db.prepare(`SELECT word, saved_at, review_count, known_count, last_reviewed_at
+  db.prepare(`SELECT word, saved_at, saved_tag, review_count, known_count, last_reviewed_at
               FROM entries WHERE saved_at IS NOT NULL ORDER BY saved_at DESC`)
     .all() as unknown as SavedRow[];
 
-export const setSaved = (word: string, saved: boolean) =>
-  db.prepare('UPDATE entries SET saved_at = ? WHERE word = ?')
-    .run(saved ? now() : null, word);
+export const setSaved = (word: string, saved: boolean, tag: string | null = null) =>
+  db.prepare('UPDATE entries SET saved_at = ?, saved_tag = ? WHERE word = ?')
+    .run(saved ? now() : null, saved ? tag : null, word);
+
+export const listTags = () =>
+  db.prepare(`SELECT saved_tag AS tag, COUNT(*) AS count FROM entries
+              WHERE saved_at IS NOT NULL AND saved_tag IS NOT NULL AND saved_tag != ''
+              GROUP BY saved_tag ORDER BY count DESC, tag ASC`)
+    .all() as unknown as { tag: string; count: number }[];
 
 export const recordReview = (word: string, known: boolean) =>
   db.prepare(`UPDATE entries SET review_count = review_count + 1,

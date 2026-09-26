@@ -32,6 +32,12 @@ addEventListener('hashchange', route);
 const input = $('#searchInput');
 const datalist = $('#suggest');
 
+function go(word) {
+  input.value = word;
+  location.hash = '#/';
+  lookup(word);
+}
+
 let suggestTimer;
 input.addEventListener('input', () => {
   clearTimeout(suggestTimer);
@@ -64,7 +70,7 @@ async function lookup(word) {
     if (e.body?.suggestion) {
       const link = el('a', null, `Did you mean “${e.body.suggestion}”?`);
       link.href = '#/';
-      link.addEventListener('click', () => { input.value = e.body.suggestion; lookup(e.body.suggestion); });
+      link.addEventListener('click', () => go(e.body.suggestion));
       card.append(el('p', null), link);
     }
     box.replaceChildren(card);
@@ -78,9 +84,23 @@ function chipRow(label, words) {
   const wrap = el('div');
   wrap.append(el('h2', null, label));
   const chips = el('div', 'chips');
-  for (const w of words) chips.append(el('span', null, w));
+  for (const w of words) {
+    const c = el('button', 'chip', w);
+    c.type = 'button';
+    c.addEventListener('click', () => go(w));
+    chips.append(c);
+  }
   wrap.append(chips);
   return wrap;
+}
+
+function refreshTagSuggestions() {
+  api('/api/tags').then(tags =>
+    $('#tagSug').replaceChildren(...tags.map(t => {
+      const o = document.createElement('option');
+      o.value = t.tag;
+      return o;
+    }))).catch(() => {});
 }
 
 function renderCard(entry, mount) {
@@ -104,16 +124,59 @@ function renderCard(entry, mount) {
   saveBtn.type = 'button';
   let saved = false;
   saveBtn.addEventListener('click', async () => {
-    saveBtn.disabled = true;
-    try {
-      await api(`/api/words/${encodeURIComponent(entry.word)}`, { method: saved ? 'DELETE' : 'PUT' });
-      saved = !saved;
-      saveBtn.textContent = saved ? 'Saved' : 'Save';
-    } finally { saveBtn.disabled = false; }
+    if (saved) {
+      saveBtn.disabled = true;
+      try {
+        await api(`/api/words/${encodeURIComponent(entry.word)}`, { method: 'DELETE' });
+        saved = false;
+        saveBtn.textContent = 'Save';
+      } finally { saveBtn.disabled = false; }
+      return;
+    }
+    refreshTagSuggestions();
+    const form = el('span', 'save-form');
+    const tagIn = document.createElement('input');
+    tagIn.type = 'text';
+    tagIn.placeholder = 'tag (optional)';
+    tagIn.setAttribute('list', 'tagSug');
+    tagIn.maxLength = 60;
+    const ok = el('button', 'primary', 'Save');
+    ok.type = 'button';
+    const cancel = el('button', null, '✕');
+    cancel.type = 'button';
+    const submit = async () => {
+      ok.disabled = true;
+      try {
+        await api(`/api/words/${encodeURIComponent(entry.word)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag: tagIn.value.trim() || undefined }),
+        });
+        saved = true;
+        saveBtn.textContent = 'Saved';
+        form.replaceWith(saveBtn);
+      } finally { ok.disabled = false; }
+    };
+    ok.addEventListener('click', submit);
+    tagIn.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+    cancel.addEventListener('click', () => form.replaceWith(saveBtn));
+    form.append(tagIn, ok, cancel);
+    saveBtn.replaceWith(form);
+    tagIn.focus();
   });
   actions.append(saveBtn);
   head.append(actions);
   card.append(head);
+
+  if (entry.formOf) {
+    const banner = el('div', 'formof');
+    banner.append(`${entry.formOf.kind} of `);
+    const link = el('button', 'linkish', entry.formOf.word);
+    link.type = 'button';
+    link.addEventListener('click', () => go(entry.formOf.word));
+    banner.append(link);
+    card.append(banner);
+  }
 
   const allDefs = entry.meanings.flatMap(m => m.definitions.map(d => ({ ...d, pos: m.partOfSpeech })));
   const first = allDefs[0];
@@ -168,6 +231,14 @@ function renderCard(entry, mount) {
     card.append(sec);
   }
 
+  const related = (entry.related ?? []).filter(w => w !== entry.formOf?.word);
+  if (related.length) {
+    const sec = el('section');
+    const row = chipRow('Related', related);
+    if (row) sec.append(row);
+    card.append(sec);
+  }
+
   if (entry.sourceUrls?.length) {
     const src = el('div', 'src');
     for (const u of entry.sourceUrls.slice(0, 2)) {
@@ -184,21 +255,44 @@ function renderCard(entry, mount) {
 
 /* ---------- saved list ---------- */
 
+let activeTag = null;
+
 async function renderSaved() {
   const box = $('#savedList');
   box.replaceChildren(el('div', 'empty', 'Loading…'));
-  const rows = await api('/api/words').catch(() => []);
+  const [rows, tags] = await Promise.all([
+    api('/api/words').catch(() => []),
+    api('/api/tags').catch(() => []),
+  ]);
   if (!rows.length) {
     box.replaceChildren(el('div', 'empty', 'No saved words yet. Search a word and hit Save.'));
     return;
   }
-  box.replaceChildren(...rows.map(r => {
+
+  const frag = document.createDocumentFragment();
+  if (tags.length) {
+    const bar = el('div', 'chips tag-bar');
+    for (const t of tags) {
+      const c = el('button', 'chip' + (activeTag === t.tag ? ' active' : ''), `${t.tag} (${t.count})`);
+      c.type = 'button';
+      c.addEventListener('click', () => {
+        activeTag = activeTag === t.tag ? null : t.tag;
+        renderSaved();
+      });
+      bar.append(c);
+    }
+    frag.append(bar);
+  }
+
+  const visible = activeTag ? rows.filter(r => r.saved_tag === activeTag) : rows;
+  for (const r of visible) {
     const row = el('div', 'saved-row');
     const left = el('div');
     const w = el('button', 'word', r.word);
     w.type = 'button';
-    w.addEventListener('click', () => { location.hash = '#/'; input.value = r.word; lookup(r.word); });
+    w.addEventListener('click', () => go(r.word));
     const metaBits = [`saved ${r.saved_at.slice(0, 10)}`];
+    if (r.saved_tag) metaBits.push(`tag: ${r.saved_tag}`);
     if (r.review_count) metaBits.push(`reviewed ${r.review_count}× (${r.known_count} known)`);
     left.append(w, el('div', 'meta', metaBits.join(' · ')));
     const del = el('button', null, 'Remove');
@@ -206,11 +300,12 @@ async function renderSaved() {
     del.addEventListener('click', async () => {
       await api(`/api/words/${encodeURIComponent(r.word)}`, { method: 'DELETE' });
       row.remove();
-      if (!box.children.length) renderSaved();
+      if (!box.querySelector('.saved-row')) renderSaved();
     });
     row.append(left, del);
-    return row;
-  }));
+    frag.append(row);
+  }
+  box.replaceChildren(frag);
 }
 
 /* ---------- review ---------- */

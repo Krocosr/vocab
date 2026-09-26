@@ -181,6 +181,53 @@ button.primary:hover { filter: brightness(0.94); }
   color: var(--color-muted);
 }
 
+button.chip {
+  min-height: 32px;
+  padding: 2px 12px;
+  font-size: 14px;
+  border-radius: 999px;
+  color: var(--color-muted);
+}
+
+button.chip:hover { color: var(--color-accent); border-color: var(--color-accent); }
+
+button.chip.active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+button.linkish {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+button.linkish:hover { background: none; }
+
+.formof {
+  margin-top: var(--space-xs);
+  color: var(--color-muted);
+}
+
+.save-form { display: inline-flex; gap: var(--space-xs); align-items: center; }
+
+.save-form input {
+  min-height: 44px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-base);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  width: 160px;
+}
+
+.tag-bar { margin-bottom: var(--space-md); }
+
 details {
   border-top: 1px solid var(--color-border);
   padding: var(--space-sm) 0;

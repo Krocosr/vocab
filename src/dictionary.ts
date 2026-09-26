@@ -17,6 +17,8 @@ export interface WordEntry {
   phonetic: string | null;
   audioUrl: string | null;
   origin: string | null;
+  formOf: { kind: string; word: string } | null;
+  related: string[];
   meanings: Meaning[];
   sourceUrls: string[];
   fetchedAt: string;
@@ -33,11 +35,30 @@ const TIMEOUT = 8000;
 const MAX_DEFS_PER_POS = 6;
 const MAX_SYNONYMS = 8;
 const MAX_ETYMOLOGY = 1500;
+const MAX_RELATED = 12;
+const MAX_PREFETCH = 5;
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+async function fetchRes(url: string): Promise<Response> {
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
+  if (res.status === 429) {
+    await sleep(2000);
+    return fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
+  }
+  return res;
+}
 
 async function fetchJson(url: string): Promise<any> {
-  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-  if (!res.ok) throw new Error(`upstream ${res.status}`);
-  return res.json();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
+    if (res.status !== 429) {
+      if (!res.ok) throw new Error(`upstream ${res.status}`);
+      return res.json();
+    }
+    await sleep(2000);
+  }
+  throw new Error('upstream 429');
 }
 
 function decodeEntities(s: string): string {
@@ -58,6 +79,102 @@ function htmlToText(html: string): string {
     .replace(/([«“])\s+/g, '$1')
     .trim();
 }
+
+// ponytail: prose lives in <p>; etymology trees/navboxes are div+ul — skipping
+// non-<p> content drops them without a DOM parser. Upgrade to cheerio if needed.
+const paragraphText = (html: string) =>
+  (html.match(/<p\b[\s\S]*?<\/p>/gi) ?? [])
+    .map(p => htmlToText(p))
+    .filter(Boolean)
+    .join(' ');
+
+const sectionLinks = (html: string): string[] =>
+  [...new Set(
+    [...html.matchAll(/href="\/wiki\/([^"#:]+)["#]/g)]
+      .map(m => decodeURIComponent(m[1]).replace(/_/g, ' '))
+  )];
+
+const FORMOF_RE = /^((?:plural|singular|past tense|past participle|present participle|third-person singular|simple past|comparative|superlative|diminutive|augmentative|clipping|shortened|abbreviation|initialism|acronym|alternative|obsolete|archaic|dated|nonstandard|misspelled|misspelling|eye-dialect|pronunciation spelling|inflected|inflection)[\w\s-]*?) of ([\w][\w' -]+?)\s*(?:[.,;:)\[\-]|$)/i;
+
+export const detectFormOf = (text: string): { kind: string; word: string } | null => {
+  const m = text.match(FORMOF_RE);
+  return m ? { kind: m[1].trim(), word: m[2].trim().toLowerCase() } : null;
+};
+
+/* ---------- wiktionary ---------- */
+
+const wiktApi = 'https://en.wiktionary.org';
+const enc = encodeURIComponent;
+
+async function fetchSections(word: string): Promise<{ index: string; line: string }[]> {
+  const res = await fetchJson(`${wiktApi}/w/api.php?action=parse&page=${enc(word)}&prop=sections&format=json&formatversion=2`);
+  return res?.parse?.sections ?? [];
+}
+
+async function fetchSectionHtml(word: string, index: string): Promise<string> {
+  const res = await fetchJson(`${wiktApi}/w/api.php?action=parse&page=${enc(word)}&prop=text&section=${index}&format=json&formatversion=2`);
+  return res?.parse?.text ?? '';
+}
+
+async function wiktionaryExtras(word: string, sections: { index: string; line: string }[] | null) {
+  const list = sections ?? await fetchSections(word).catch(() => []);
+  const etym = list.find(s => /^Etymology/.test(s.line));
+  const relSections = list.filter(s => /^(Derived|Related) terms|^See also/i.test(s.line));
+
+  const [etymHtml, ...relHtmls] = await Promise.all([
+    etym ? fetchSectionHtml(word, etym.index) : Promise.resolve(''),
+    ...relSections.slice(0, 3).map(s => fetchSectionHtml(word, s.index)),
+  ]);
+
+  const origin = paragraphText(etymHtml).slice(0, MAX_ETYMOLOGY) || null;
+  const related = relHtmls.flatMap(sectionLinks)
+    .map(w => w.trim())
+    .filter(w => w && w.toLowerCase() !== word && !w.includes('/'));
+  return { origin, related: [...new Set(related)].slice(0, MAX_RELATED) };
+}
+
+function normalizeWiktionary(data: any, word: string): Pick<WordEntry, 'meanings'> {
+  const english = data.en ?? Object.values(data)[0] as any[];
+  const meanings: Meaning[] = (english ?? [])
+    .filter((m: any) => m.definitions?.length)
+    .map((m: any) => ({
+      partOfSpeech: String(m.partOfSpeech ?? '').toLowerCase(),
+      definitions: m.definitions.slice(0, MAX_DEFS_PER_POS).map((d: any) => ({
+        text: htmlToText(d.definition ?? ''),
+        example: d.examples?.[0] ? htmlToText(d.examples[0]) : null,
+        synonyms: [],
+        antonyms: [],
+      })),
+    }));
+  return { meanings };
+}
+
+async function fromWiktionary(word: string): Promise<WordEntry> {
+  const [defRes, sections] = await Promise.all([
+    fetchRes(`${wiktApi}/api/rest_v1/page/definition/${enc(word)}`),
+    fetchSections(word).catch(() => [] as { index: string; line: string }[]),
+  ]);
+  if (defRes.status === 404) throw new WordNotFound(null);
+  if (!defRes.ok) throw new Error(`wiktionary ${defRes.status}`);
+
+  const { meanings } = normalizeWiktionary(await defRes.json(), word);
+  if (!meanings.length) throw new WordNotFound(null);
+
+  const extras = await wiktionaryExtras(word, sections);
+  return {
+    word,
+    phonetic: null,
+    audioUrl: null,
+    origin: extras.origin,
+    formOf: detectFormOf(meanings[0].definitions[0]?.text ?? ''),
+    related: extras.related,
+    meanings,
+    sourceUrls: [`${wiktApi}/wiki/${enc(word)}`],
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+/* ---------- dictionaryapi ---------- */
 
 export function normalizeDictionaryApi(entries: any[], query: string): WordEntry {
   const meanings: Meaning[] = [];
@@ -88,85 +205,54 @@ export function normalizeDictionaryApi(entries: any[], query: string): WordEntry
   const origin = entries.find(e => e.origin)?.origin ?? null;
   const sourceUrls = [...new Set(entries.flatMap(e => e.sourceUrls ?? []))];
 
-  return { word: entries[0]?.word ?? query, phonetic, audioUrl, origin, meanings, sourceUrls, fetchedAt: new Date().toISOString() };
+  return { word: entries[0]?.word ?? query, phonetic, audioUrl, origin, formOf: null, related: [], meanings, sourceUrls, fetchedAt: new Date().toISOString() };
 }
 
-async function fetchEtymology(word: string): Promise<string | null> {
-  const page = encodeURIComponent(word);
-  const sectionsRes = await fetchJson(
-    `https://en.wiktionary.org/w/api.php?action=parse&page=${page}&prop=sections&format=json&formatversion=2`);
-  const sections: { index: string; line: string }[] = sectionsRes?.parse?.sections ?? [];
-  const etym = sections.find(s => /^Etymology/.test(s.line));
-  if (!etym) return null;
-
-  const textRes = await fetchJson(
-    `https://en.wiktionary.org/w/api.php?action=parse&page=${page}&prop=text&section=${etym.index}&format=json&formatversion=2`);
-  const html: string = textRes?.parse?.text ?? '';
-  // ponytail: prose lives in <p>; etymology trees/navboxes are div+ul — skipping
-  // non-<p> content drops them without a DOM parser. Upgrade to cheerio if needed.
-  const text = (html.match(/<p\b[\s\S]*?<\/p>/gi) ?? [])
-    .map(p => htmlToText(p))
-    .filter(Boolean)
-    .join(' ');
-  return text ? text.slice(0, MAX_ETYMOLOGY) : null;
-}
+// ponytail: dictionaryapi.dev goes down for days; after a network failure we skip
+// it for 5 min instead of paying an 8s timeout on every lookup. Refresh on success.
+let dictApiDownUntil = 0;
 
 async function fromDictionaryApi(word: string): Promise<WordEntry> {
-  const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, {
-    headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT),
-  });
+  if (Date.now() < dictApiDownUntil) throw new Error('dictionaryapi cooldown');
+  let res: Response;
+  try {
+    res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${enc(word)}`, {
+      headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT),
+    });
+  } catch (e) {
+    dictApiDownUntil = Date.now() + 5 * 60_000;
+    throw e;
+  }
   if (res.status === 404) throw new WordNotFound(null);
-  if (!res.ok) throw new Error(`dictionaryapi ${res.status}`);
+  if (!res.ok) {
+    dictApiDownUntil = Date.now() + 5 * 60_000;
+    throw new Error(`dictionaryapi ${res.status}`);
+  }
 
   const entry = normalizeDictionaryApi(await res.json(), word);
-  if (!entry.origin) entry.origin = await fetchEtymology(word).catch(() => null);
+  const extras = await wiktionaryExtras(word, null);
+  if (!entry.origin) entry.origin = extras.origin;
+  entry.related = extras.related;
+  entry.formOf = detectFormOf(entry.meanings[0]?.definitions[0]?.text ?? '');
   return entry;
 }
 
-async function fromWiktionary(word: string): Promise<WordEntry> {
-  const res = await fetch(
-    `https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`,
-    { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-  if (res.status === 404) throw new WordNotFound(null);
-  if (!res.ok) throw new Error(`wiktionary ${res.status}`);
-
-  const data = await res.json();
-  const english = data.en ?? data.eng ?? Object.values(data)[0] as any[];
-  const meanings: Meaning[] = (english ?? [])
-    .filter((m: any) => m.definitions?.length)
-    .map((m: any) => ({
-      partOfSpeech: String(m.partOfSpeech ?? '').toLowerCase(),
-      definitions: m.definitions.slice(0, MAX_DEFS_PER_POS).map((d: any) => ({
-        text: htmlToText(d.definition ?? ''),
-        example: d.examples?.[0] ? htmlToText(d.examples[0]) : null,
-        synonyms: [],
-        antonyms: [],
-      })),
-    }));
-  if (!meanings.length) throw new WordNotFound(null);
-
-  return {
-    word,
-    phonetic: null,
-    audioUrl: null,
-    origin: await fetchEtymology(word).catch(() => null),
-    meanings,
-    sourceUrls: [`https://en.wiktionary.org/wiki/${encodeURIComponent(word)}`],
-    fetchedAt: new Date().toISOString(),
-  };
-}
+/* ---------- public ---------- */
 
 export async function suggest(q: string): Promise<string[]> {
   const res = await fetchJson(
-    `https://en.wiktionary.org/w/api.php?action=opensearch&search=${encodeURIComponent(q)}&limit=8&namespace=0&format=json`);
+    `${wiktApi}/w/api.php?action=opensearch&search=${enc(q)}&limit=8&namespace=0&format=json`);
   return Array.isArray(res?.[1]) ? res[1] : [];
 }
 
-export async function fetchWord(raw: string): Promise<WordEntry> {
+export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {
   const word = raw.toLowerCase().trim();
 
   const cached = getEntry(word);
-  if (cached) return JSON.parse(cached.payload) as WordEntry;
+  if (cached) {
+    const entry = JSON.parse(cached.payload) as WordEntry;
+    if ('related' in entry) return entry; // pre-related payloads re-fetch once
+  }
 
   let entry: WordEntry;
   try {
@@ -184,5 +270,29 @@ export async function fetchWord(raw: string): Promise<WordEntry> {
   }
 
   putEntry(word, JSON.stringify(entry));
+
+  // ponytail: depth-1 prefetch, serial + paced — predictive cache for link
+  // navigation without hammering wiktionary's rate limit.
+  if (depth === 0) {
+    for (const rel of [entry.formOf?.word, ...entry.related].slice(0, MAX_PREFETCH)) {
+      if (rel) prefetchQueue.add(rel);
+    }
+    void drainPrefetch();
+  }
   return entry;
+}
+
+const prefetchQueue = new Set<string>();
+let prefetching = false;
+
+async function drainPrefetch() {
+  if (prefetching) return;
+  prefetching = true;
+  while (prefetchQueue.size) {
+    const w = prefetchQueue.values().next().value!;
+    prefetchQueue.delete(w);
+    await fetchWord(w, 1).catch(() => {});
+    await sleep(1500);
+  }
+  prefetching = false;
 }

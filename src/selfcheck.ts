@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normalizeDictionaryApi } from './dictionary.js';
+import { detectFormOf, normalizeDictionaryApi } from './dictionary.js';
 
 const sample = [{
   word: 'hello',
@@ -29,11 +29,18 @@ assert.equal(e.meanings[0].definitions.length, 1); // duplicate definition dedup
 assert.equal(e.meanings[1].partOfSpeech, 'noun');
 assert.deepEqual(e.sourceUrls, ['https://en.wiktionary.org/wiki/hello']);
 
+assert.deepEqual(detectFormOf('plural of rouse.'), { kind: 'plural', word: 'rouse' });
+assert.deepEqual(detectFormOf('past tense of run'), { kind: 'past tense', word: 'run' });
+assert.equal(detectFormOf('a greeting said when meeting someone'), null);
+
 if (process.argv.includes('--live')) {
   const { fetchWord, suggest, WordNotFound } = await import('./dictionary.js');
   const w = await fetchWord('hello');
   assert.ok(w.meanings.length > 0);
   assert.ok((await suggest('hel')).includes('hello'));
+  const infl = await fetchWord('rouses');
+  assert.equal(infl.formOf?.word, 'rouse');
+  assert.ok(Array.isArray(infl.related));
   try {
     await fetchWord('xyzqqqnotaword');
     assert.fail('expected WordNotFound');

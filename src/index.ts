@@ -1,11 +1,11 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { getEntry, listSaved, recordReview, reviewQueue, setSaved } from './db.js';
+import { getEntry, listSaved, listTags, recordReview, reviewQueue, setSaved } from './db.js';
 import { fetchWord, suggest, WordNotFound } from './dictionary.js';
 
 const app = express();
 app.use(express.json());
-app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
+app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { maxAge: '1h' }));
 
 const WORD_RE = /^[a-zA-Z' -]{1,64}$/;
 
@@ -43,12 +43,17 @@ app.put('/api/words/:word', async (req, res) => {
   if (!validWord(word)) return res.status(400).json({ error: 'invalid word' });
   try {
     if (!getEntry(word)) await fetchWord(word); // validate it's a real word + warm cache
-    setSaved(word, true);
+    const tag = typeof req.body?.tag === 'string' ? req.body.tag.trim().slice(0, 60) || null : null;
+    setSaved(word, true, tag);
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof WordNotFound) return res.status(404).json({ error: 'not found', suggestion: e.suggestion });
     throw e;
   }
+});
+
+app.get('/api/tags', (_req, res) => {
+  res.json(listTags());
 });
 
 app.delete('/api/words/:word', (req, res) => {
