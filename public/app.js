@@ -75,6 +75,7 @@ const input = $('#searchInput');
 const searchDrop = attachDropdown(input, w => { input.blur(); go(w); });
 
 function go(word) {
+  cancelSuggest();
   input.value = word;
   location.hash = '#/';
   lookup(word);
@@ -82,6 +83,7 @@ function go(word) {
 
 let suggestTimer, suggestAbort;
 const suggestCache = new Map();
+const cancelSuggest = () => { clearTimeout(suggestTimer); suggestAbort?.abort(); searchDrop.close(); };
 input.addEventListener('input', () => {
   clearTimeout(suggestTimer);
   const q = input.value.trim();
@@ -101,7 +103,7 @@ input.addEventListener('input', () => {
 
 $('#searchForm').addEventListener('submit', e => {
   e.preventDefault();
-  searchDrop.close();
+  cancelSuggest();
   const w = input.value.trim();
   if (w) lookup(w);
 });
