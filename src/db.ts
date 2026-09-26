@@ -1,9 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const DB_PATH = process.env.VOCAB_DB ?? 'data/vocab.db';
 mkdirSync(dirname(DB_PATH), { recursive: true });
+
+// snapshot before opening so a wipe/corruption leaves a restore point
+for (const suffix of ['', '-wal', '-shm'])
+  if (existsSync(DB_PATH + suffix)) copyFileSync(DB_PATH + suffix, DB_PATH + suffix + '.bak');
 
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');

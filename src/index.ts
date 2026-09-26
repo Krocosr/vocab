@@ -5,7 +5,7 @@ import { fetchWord, suggest, WordNotFound } from './dictionary.js';
 
 const app = express();
 app.use(express.json());
-app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { maxAge: '1h' }));
+app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { maxAge: 0 }));
 
 const WORD_RE = /^[a-zA-Z' -]{1,64}$/;
 
