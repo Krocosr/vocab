@@ -76,6 +76,36 @@ main {
 
 #searchForm { margin-block: var(--space-xl); }
 
+.dd-wrap { position: relative; }
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.dropdown li {
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.dropdown li:hover, .dropdown li.sel { background: var(--color-accent-soft); }
+
 #searchInput {
   width: 100%;
   min-height: 56px;
@@ -290,9 +320,22 @@ ol.defs li { margin-bottom: var(--space-sm); }
   padding: var(--space-2xl) var(--space-md);
 }
 
-.review-face { min-height: 120px; }
+.review-card {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
 
-.review-buttons { display: flex; gap: var(--space-sm); margin-top: var(--space-lg); }
+.review-face {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--space-lg);
+}
+
+.review-buttons { display: flex; gap: var(--space-sm); margin-top: auto; padding-top: var(--space-lg); }
 .review-buttons button { flex: 1; }
 
 .site-footer {
@@ -305,4 +348,25 @@ ol.defs li { margin-bottom: var(--space-sm); }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+}
+
+@media (max-width: 560px) {
+  .site-header { padding: var(--space-sm); }
+  nav { gap: 0; }
+  nav a { padding: var(--space-xs) 10px; }
+
+  .card { padding: var(--space-md); }
+  .card h1 { font-size: var(--text-xl); }
+  .card-head { flex-wrap: wrap; }
+  .card-actions { margin-left: auto; }
+
+  #searchInput { font-size: var(--text-base); min-height: 52px; }
+  #searchForm { margin-block: var(--space-lg); }
+
+  .save-form input { width: 120px; }
+  .saved-row { padding: var(--space-sm); }
+  .saved-row .word { font-size: var(--text-base); }
+
+  .review-card { min-height: 300px; }
+  .review-buttons { flex-direction: column; }
 }

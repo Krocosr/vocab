@@ -26,6 +26,7 @@ export interface EntryRow {
   payload: string;
   fetched_at: string;
   saved_at: string | null;
+  saved_tag: string | null;
   review_count: number;
   known_count: number;
   last_reviewed_at: string | null;

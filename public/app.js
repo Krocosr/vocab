@@ -13,6 +13,47 @@ async function api(path, opts) {
   return body;
 }
 
+/* ---------- dropdown (custom suggestion list) ---------- */
+
+function attachDropdown(input, onPick) {
+  const wrap = input.closest('.dd-wrap') ?? input.parentElement;
+  let list = null;
+  let idx = -1;
+
+  const close = () => { list?.remove(); list = null; idx = -1; };
+  const open = items => {
+    close();
+    if (!items.length) return;
+    list = el('ul', 'dropdown');
+    for (const item of items) {
+      const li = el('li', null, item);
+      li.addEventListener('mousedown', e => { e.preventDefault(); onPick(item); close(); });
+      list.append(li);
+    }
+    wrap.append(list);
+  };
+
+  input.addEventListener('keydown', e => {
+    if (!list) return;
+    const items = [...list.children];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      idx = (idx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items.forEach((li, i) => li.classList.toggle('sel', i === idx));
+      items[idx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && idx >= 0) {
+      e.preventDefault();
+      onPick(items[idx].textContent);
+      close();
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  document.addEventListener('click', e => { if (!wrap.contains(e.target)) close(); });
+  return { open, close };
+}
+
 /* ---------- routing ---------- */
 
 const views = { search: $('#view-search'), saved: $('#view-saved'), review: $('#view-review') };
@@ -24,13 +65,14 @@ function route() {
     a.classList.toggle('active', a.dataset.nav === name));
   if (name === 'saved') renderSaved();
   if (name === 'review') startReview();
+  if (name === 'search') refreshSaveState();
 }
 addEventListener('hashchange', route);
 
 /* ---------- search ---------- */
 
 const input = $('#searchInput');
-const datalist = $('#suggest');
+const searchDrop = attachDropdown(input, w => { input.blur(); go(w); });
 
 function go(word) {
   input.value = word;
@@ -42,19 +84,16 @@ let suggestTimer;
 input.addEventListener('input', () => {
   clearTimeout(suggestTimer);
   const q = input.value.trim();
-  if (q.length < 2) { datalist.replaceChildren(); return; }
+  if (q.length < 2) { searchDrop.close(); return; }
   suggestTimer = setTimeout(async () => {
     const words = await api(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => []);
-    datalist.replaceChildren(...words.map(w => {
-      const o = document.createElement('option');
-      o.value = w;
-      return o;
-    }));
+    searchDrop.open(words);
   }, 250);
 });
 
 $('#searchForm').addEventListener('submit', e => {
   e.preventDefault();
+  searchDrop.close();
   const w = input.value.trim();
   if (w) lookup(w);
 });
@@ -79,6 +118,19 @@ async function lookup(word) {
 
 /* ---------- word card ---------- */
 
+// tracks the displayed card so Save state survives tab round-trips
+const cardState = { word: null, saved: false, btn: null };
+
+async function refreshSaveState() {
+  if (!cardState.word || !cardState.btn) return;
+  const rows = await api('/api/words').catch(() => []);
+  const isSaved = rows.some(r => r.word === cardState.word);
+  if (isSaved !== cardState.saved) {
+    cardState.saved = isSaved;
+    cardState.btn.textContent = isSaved ? 'Saved' : 'Save';
+  }
+}
+
 function chipRow(label, words) {
   if (!words?.length) return null;
   const wrap = el('div');
@@ -92,15 +144,6 @@ function chipRow(label, words) {
   }
   wrap.append(chips);
   return wrap;
-}
-
-function refreshTagSuggestions() {
-  api('/api/tags').then(tags =>
-    $('#tagSug').replaceChildren(...tags.map(t => {
-      const o = document.createElement('option');
-      o.value = t.tag;
-      return o;
-    }))).catch(() => {});
 }
 
 function renderCard(entry, mount) {
@@ -120,47 +163,60 @@ function renderCard(entry, mount) {
     audio.addEventListener('click', () => new Audio(entry.audioUrl).play());
     actions.append(audio);
   }
-  const saveBtn = el('button', null, 'Save');
+
+  const saveBtn = el('button', null, entry.saved ? 'Saved' : 'Save');
   saveBtn.type = 'button';
-  let saved = false;
+  cardState.word = entry.word;
+  cardState.saved = !!entry.saved;
+  cardState.btn = saveBtn;
+
   saveBtn.addEventListener('click', async () => {
-    if (saved) {
+    if (cardState.saved) {
       saveBtn.disabled = true;
       try {
         await api(`/api/words/${encodeURIComponent(entry.word)}`, { method: 'DELETE' });
-        saved = false;
+        cardState.saved = false;
         saveBtn.textContent = 'Save';
       } finally { saveBtn.disabled = false; }
       return;
     }
-    refreshTagSuggestions();
+    const tags = await api('/api/tags').catch(() => []);
     const form = el('span', 'save-form');
+    const tagWrap = el('span', 'dd-wrap');
     const tagIn = document.createElement('input');
     tagIn.type = 'text';
     tagIn.placeholder = 'tag (optional)';
-    tagIn.setAttribute('list', 'tagSug');
     tagIn.maxLength = 60;
+    tagWrap.append(tagIn);
+    const tagDrop = attachDropdown(tagIn, t => { tagIn.value = t; tagIn.focus(); });
+    const showTags = () => {
+      const q = tagIn.value.trim().toLowerCase();
+      tagDrop.open(tags.map(t => t.tag).filter(t => !q || t.toLowerCase().includes(q)));
+    };
+    tagIn.addEventListener('focus', showTags);
+    tagIn.addEventListener('input', showTags);
     const ok = el('button', 'primary', 'Save');
     ok.type = 'button';
     const cancel = el('button', null, '✕');
     cancel.type = 'button';
     const submit = async () => {
       ok.disabled = true;
+      tagDrop.close();
       try {
         await api(`/api/words/${encodeURIComponent(entry.word)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tag: tagIn.value.trim() || undefined }),
         });
-        saved = true;
+        cardState.saved = true;
         saveBtn.textContent = 'Saved';
         form.replaceWith(saveBtn);
       } finally { ok.disabled = false; }
     };
     ok.addEventListener('click', submit);
-    tagIn.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
-    cancel.addEventListener('click', () => form.replaceWith(saveBtn));
-    form.append(tagIn, ok, cancel);
+    tagIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    cancel.addEventListener('click', () => { tagDrop.close(); form.replaceWith(saveBtn); });
+    form.append(tagWrap, ok, cancel);
     saveBtn.replaceWith(form);
     tagIn.focus();
   });
@@ -268,6 +324,7 @@ async function renderSaved() {
     box.replaceChildren(el('div', 'empty', 'No saved words yet. Search a word and hit Save.'));
     return;
   }
+  if (activeTag && !tags.some(t => t.tag === activeTag)) activeTag = null;
 
   const frag = document.createDocumentFragment();
   if (tags.length) {
@@ -299,8 +356,7 @@ async function renderSaved() {
     del.type = 'button';
     del.addEventListener('click', async () => {
       await api(`/api/words/${encodeURIComponent(r.word)}`, { method: 'DELETE' });
-      row.remove();
-      if (!box.querySelector('.saved-row')) renderSaved();
+      renderSaved();
     });
     row.append(left, del);
     frag.append(row);
@@ -332,19 +388,24 @@ function showReviewCard() {
     return;
   }
   const entry = queue[qi];
-  const card = el('article', 'card');
-  card.append(el('h1', null, entry.word));
-  if (entry.phonetic) card.append(el('div', 'phonetic', entry.phonetic));
+  const card = el('article', 'card review-card');
+
+  const top = el('div', 'card-head');
+  const tw = el('div');
+  tw.append(el('h1', null, entry.word));
+  if (entry.phonetic) tw.append(el('div', 'phonetic', entry.phonetic));
+  top.append(tw, el('div', 'meta', `${qi + 1} / ${queue.length}`));
+  card.append(top);
 
   const face = el('div', 'review-face');
   const revealBtn = el('button', 'primary', 'Reveal');
   revealBtn.type = 'button';
   revealBtn.addEventListener('click', () => {
     const first = entry.meanings?.[0]?.definitions?.[0];
-    face.replaceChildren(
-      el('p', 'lede', first?.text ?? '(no definition cached)'),
-      ...(entry.origin ? [el('p', 'example', entry.origin)] : []));
-    revealBtn.remove();
+    const body = el('div');
+    body.append(el('p', 'lede', first?.text ?? '(no definition cached)'));
+    if (entry.origin) body.append(el('p', 'example', entry.origin));
+    face.replaceChildren(body);
     const btns = el('div', 'review-buttons');
     for (const [label, known] of [['Again', false], ['Knew it', true]]) {
       const b = el('button', known ? 'primary' : null, label);
@@ -358,10 +419,10 @@ function showReviewCard() {
       });
       btns.append(b);
     }
-    face.append(btns);
+    card.append(btns);
   });
   face.append(revealBtn);
-  card.append(face, el('p', 'meta', `${qi + 1} / ${queue.length}`));
+  card.append(face);
   box.replaceChildren(card);
 }
 

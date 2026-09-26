@@ -17,7 +17,9 @@ app.get('/api/word/:word', async (req, res) => {
   const word = req.params.word.toLowerCase().trim();
   if (!validWord(word)) return res.status(400).json({ error: 'invalid word' });
   try {
-    res.json(await fetchWord(word));
+    const entry = await fetchWord(word);
+    const row = getEntry(word);
+    res.json({ ...entry, saved: !!row?.saved_at, savedTag: row?.saved_tag ?? null });
   } catch (e) {
     if (e instanceof WordNotFound) return res.status(404).json({ error: 'not found', suggestion: e.suggestion });
     throw e;
