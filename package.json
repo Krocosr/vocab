@@ -1,14 +1,41 @@
 {
-  "name": "vocab",
+  "name": "@krocosr/vocab",
   "version": "1.0.0",
+  "description": "Self-hosted vocabulary builder — look up words while reading and save where you found them",
+  "keywords": [
+    "vocabulary",
+    "vocabulary-builder",
+    "dictionary",
+    "words",
+    "cli",
+    "self-hosted",
+    "wiktionary",
+    "reading",
+    "study"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Krocosr/vocab.git"
+  },
   "main": "dist/index.js",
-  "bin": { "vocab": "dist/cli.js" },
+  "bin": {
+    "vocab": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "selfcheck": "tsx src/selfcheck.ts"
+    "selfcheck": "tsx src/selfcheck.ts",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "compression": "^1.8.1",

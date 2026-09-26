@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
 
-process.env.VOCAB_DB ??= fileURLToPath(new URL('../data/vocab.db', import.meta.url));
+// dev checkout (npm link) shares the repo's db; global installs get ~/.vocab
+const localDb = fileURLToPath(new URL('../data/vocab.db', import.meta.url));
+process.env.VOCAB_DB ??= existsSync(localDb) ? localDb : join(homedir(), '.vocab', 'vocab.db');
 
 const { fetchWord, WordNotFound } = await import('./dictionary.js');
 const { getEntry, listSaved, listTags, setSaved, recordReview, reviewQueue } = await import('./db.js');

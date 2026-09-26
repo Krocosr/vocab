@@ -47,11 +47,10 @@ assert checks (`--live` to exercise the real APIs).
 
 ## CLI
 
-The same thing from your terminal — it reads and writes the same
-`data/vocab.db` as the server, so words you save here show up in the web app:
+The same thing from your terminal — no clone needed:
 
 ```sh
-npm link          # once — puts `vocab` on your PATH
+npm i -g @krocosr/vocab
 
 vocab banality            # look up a word
 vocab save banality -t "king in yellow"
@@ -60,6 +59,9 @@ vocab tags                # tag counts
 vocab rm banality
 vocab review              # interactive reveal-card pass
 ```
+
+Words are stored at `~/.vocab/vocab.db`. From a repo checkout, `npm link`
+puts `vocab` on your PATH and shares `data/vocab.db` with the server instead.
 
 ## Notes
 
