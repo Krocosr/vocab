@@ -41,25 +41,30 @@ const MAX_PREFETCH = 5;
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// ponytail: Wiktionary 429s under bursts (suggest-per-keystroke + lookups +
+// prefetch). Pace request starts ~400ms apart and retry a 429 twice with
+// backoff before giving up.
+let wiktNextAt = 0;
+const pace = async () => {
+  const wait = Math.max(0, wiktNextAt - Date.now());
+  wiktNextAt = Math.max(Date.now(), wiktNextAt) + 400;
+  if (wait) await sleep(wait);
+};
+
 async function fetchRes(url: string): Promise<Response> {
-  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-  if (res.status === 429) {
-    await sleep(2000);
-    return fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    await pace();
+    res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
+    if (res.status !== 429 || attempt === 2) return res;
+    await sleep(1500 * (attempt + 1));
   }
-  return res;
 }
 
 async function fetchJson(url: string): Promise<any> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-    if (res.status !== 429) {
-      if (!res.ok) throw new Error(`upstream ${res.status}`);
-      return res.json();
-    }
-    await sleep(2000);
-  }
-  throw new Error('upstream 429');
+  const res = await fetchRes(url);
+  if (!res.ok) throw new Error(`upstream ${res.status}`);
+  return res.json();
 }
 
 function decodeEntities(s: string): string {
@@ -262,10 +267,18 @@ async function fromDictionaryApi(word: string): Promise<WordEntry> {
 
 /* ---------- public ---------- */
 
+// typed prefixes repeat constantly; a short TTL cache saves the opensearch call
+const suggestCache = new Map<string, { at: number; words: string[] }>();
+
 export async function suggest(q: string): Promise<string[]> {
+  const hit = suggestCache.get(q);
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.words;
   const res = await fetchJson(
     `${wiktApi}/w/api.php?action=opensearch&search=${enc(q)}&limit=8&namespace=0&format=json`);
-  return Array.isArray(res?.[1]) ? res[1] : [];
+  const words: string[] = Array.isArray(res?.[1]) ? res[1] : [];
+  if (suggestCache.size > 500) suggestCache.clear();
+  suggestCache.set(q, { at: Date.now(), words });
+  return words;
 }
 
 export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {

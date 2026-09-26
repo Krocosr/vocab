@@ -1,61 +1,29 @@
 # vocab
 
-*A commonplace book for words.*
-
----
+Self-hosted vocabulary builder — a small dictionary app for people who read.
 
 ## Why this was made
 
-The reader who keeps a dictionary beside their chair knows the pleasure of a
-word newly met. Yet the pleasure is fleeting: the word is looked up, admired,
-and by the next chapter quite forgotten. This little service was built to
-arrest that forgetting.
+I made this because when I read a book I want to search a word's meaning and
+save where I found it. Type a word and you get a dictionary card: meaning,
+usage, history, and alternative meanings. Save it with a tag — the book's
+title, an article, wherever it came from — and the Saved page groups your
+words by tag with counts. Review mode shows them back one card at a time.
 
-Whilst reading — a novel, an essay, some yellowed tale found late at night —
-one may search a word and receive, in the manner of a good dictionary card, its
-**meaning**, its **purpose** (how it is used, and with what company), its
-**history** (whence it came), and its **other meanings** besides. And having
-found the word, one may lay it aside with a small note of *where* it was found
-— *King in Yellow*, say — so that the list of saved words becomes, in time, a
-map of one's own reading.
-
-It is light, plain, and meant to be self-hosted: a private commonplace book,
-kept in a single file, asking nothing of accounts, keys, or subscriptions —
-only a connection to the free dictionaries of the wider world.
+Related words, synonyms and word roots are clickable links, and every lookup
+is cached in a local sqlite file, so wandering from word to word stays fast.
+There are no accounts and no API keys; it talks to free dictionary sources
+(dictionaryapi.dev and Wiktionary) and keeps one file of your data.
 
 ## Preview
 
-*(reserved for screenshots)*
-
-```
-┌──────────────────────────────────────────┐
-│  serendipity                        [Save] │
-│                                          │
-│  Meaning                                 │
-│  The phenomenon of making an unplanned,  │
-│  fortunate discovery …                   │
-│                                          │
-│  History                                 │
-│  From Serendip … Coined by Horace        │
-│  Walpole in 1754 …                       │
-└──────────────────────────────────────────┘
-```
-
-## Features
-
-- **Search** — autocomplete as you type; "did you mean" on misses
-- **Word card** — Meaning · Purpose · History · Alternative meanings ·
-  Related words, all linked: click any related word to walk the dictionary
-- **Save with a tag** — record where you found the word; tags suggest
-  themselves as you reuse them, with per-tag counts and filtering
-- **Review** — a simple reveal-card pass over your saved words,
-  stalest first
-- **Predictive cache** — every lookup is cached in SQLite, and its related
-  words are quietly fetched in the background so following a link is instant
-- **No keys, no auth** — data comes from dictionaryapi.dev and Wiktionary,
-  both free; the whole dictionary is one container and one file
+| Search | Saved | Review |
+|---|---|---|
+| ![word card for "vocab"](screenshots/search.png) | ![saved list with tags](screenshots/saved.png) | ![review card](screenshots/review.png) |
 
 ## Run
+
+Needs Docker and nothing else:
 
 ```sh
 docker compose up -d --build
@@ -63,8 +31,8 @@ docker compose up -d --build
 ```
 
 The compose build context points at this repository, so `--build` always
-clones and builds the latest `master` from GitHub — your local checkout is
-not required (to build local changes instead, temporarily set `build: .`).
+clones and builds the latest `master` — your local checkout isn't required
+(to build local changes instead, temporarily set `build: .`).
 
 Or without Docker (Node ≥ 22.5, for `node:sqlite`):
 
@@ -79,11 +47,12 @@ assert checks (`--live` to exercise the real APIs).
 
 ## Notes
 
-- The database is `data/vocab.db` — one table serving as both lookup cache
-  and saved list. Back it up and you keep everything.
-- The service needs internet at runtime (free dictionary APIs); no word
-  database is bundled.
-- "Purpose" is assembled from part of speech, examples, and synonyms — free
+- Your data is `data/vocab.db` — one table that doubles as lookup cache and
+  saved list. A `*.bak` snapshot is written on every server start; back that
+  folder up and you keep everything.
+- Needs internet at runtime (the free dictionary APIs); no word database is
+  bundled.
+- "Purpose" is assembled from part of speech, examples and synonyms — free
   dictionaries have no literal "purpose" field.
 
 ## License

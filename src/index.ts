@@ -1,9 +1,11 @@
 import express from 'express';
+import compression from 'compression';
 import { fileURLToPath } from 'node:url';
 import { getEntry, listSaved, listTags, recordReview, reviewQueue, setSaved } from './db.js';
 import { fetchWord, suggest, WordNotFound } from './dictionary.js';
 
 const app = express();
+app.use(compression());
 app.use(express.json());
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { maxAge: 0 }));
 

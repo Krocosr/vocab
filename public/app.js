@@ -9,7 +9,7 @@ const el = (tag, cls, text) => {
 async function api(path, opts) {
   const res = await fetch(path, opts);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || 'request failed'), { body });
+  if (!res.ok) throw Object.assign(new Error(body.error || 'request failed'), { body, status: res.status });
   return body;
 }
 
@@ -80,15 +80,23 @@ function go(word) {
   lookup(word);
 }
 
-let suggestTimer;
+let suggestTimer, suggestAbort;
+const suggestCache = new Map();
 input.addEventListener('input', () => {
   clearTimeout(suggestTimer);
   const q = input.value.trim();
   if (q.length < 2) { searchDrop.close(); return; }
+  if (suggestCache.has(q)) { searchDrop.open(suggestCache.get(q)); return; }
   suggestTimer = setTimeout(async () => {
-    const words = await api(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => []);
-    searchDrop.open(words);
-  }, 250);
+    suggestAbort?.abort();
+    const ac = suggestAbort = new AbortController();
+    try {
+      const words = await api(`/api/suggest?q=${encodeURIComponent(q)}`, { signal: ac.signal });
+      if (suggestCache.size > 200) suggestCache.clear();
+      suggestCache.set(q, words);
+      if (!ac.signal.aborted) searchDrop.open(words);
+    } catch { /* aborted or failed — leave the dropdown alone */ }
+  }, 300);
 });
 
 $('#searchForm').addEventListener('submit', e => {
@@ -105,12 +113,16 @@ async function lookup(word) {
     renderCard(await api(`/api/word/${encodeURIComponent(word)}`), box);
   } catch (e) {
     const card = el('div', 'error-card');
-    card.append(el('p', null, `No entry found for “${word}”.`));
-    if (e.body?.suggestion) {
-      const link = el('a', null, `Did you mean “${e.body.suggestion}”?`);
-      link.href = '#/';
-      link.addEventListener('click', () => go(e.body.suggestion));
-      card.append(el('p', null), link);
+    if (e.status !== 404) {
+      card.append(el('p', null, 'Couldn’t reach the dictionary — try again in a moment.'));
+    } else {
+      card.append(el('p', null, `No entry found for “${word}”.`));
+      if (e.body?.suggestion) {
+        const link = el('a', null, `Did you mean “${e.body.suggestion}”?`);
+        link.href = '#/';
+        link.addEventListener('click', () => go(e.body.suggestion));
+        card.append(el('p', null), link);
+      }
     }
     box.replaceChildren(card);
   }
