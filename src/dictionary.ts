@@ -175,7 +175,7 @@ async function fromWiktionary(word: string): Promise<WordEntry> {
   if (!meanings.length) throw new WordNotFound(null);
 
   const extras = await wiktionaryExtras(word, pageHtml);
-  console.log(`[wikt] ${word} fetch=${tFetch}ms extras=${Date.now() - t0 - tFetch}ms`);
+  console.error(`[wikt] ${word} fetch=${tFetch}ms extras=${Date.now() - t0 - tFetch}ms`);
   return {
     word,
     phonetic: null,
@@ -229,15 +229,17 @@ let dictApiDownUntil = 0;
 
 // boot probe: learn dictapi's reachability once, with a short timeout, so the
 // first real lookup doesn't pay the full timeout on a dead host.
-void fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/test`, {
-  headers: HEADERS, signal: AbortSignal.timeout(2500),
-}).then(res => {
-  if (!res.ok && res.status !== 404) dictApiDownUntil = Date.now() + 5 * 60_000;
-  console.log(`[probe] dictionaryapi.dev ${res.ok || res.status === 404 ? 'up' : 'down'}`);
-}).catch(() => {
-  dictApiDownUntil = Date.now() + 5 * 60_000;
-  console.log('[probe] dictionaryapi.dev unreachable — skipping it for 5min');
-});
+export function probeDictApi() {
+  void fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/test`, {
+    headers: HEADERS, signal: AbortSignal.timeout(2500),
+  }).then(res => {
+    if (!res.ok && res.status !== 404) dictApiDownUntil = Date.now() + 5 * 60_000;
+    console.error(`[probe] dictionaryapi.dev ${res.ok || res.status === 404 ? 'up' : 'down'}`);
+  }).catch(() => {
+    dictApiDownUntil = Date.now() + 5 * 60_000;
+    console.error('[probe] dictionaryapi.dev unreachable — skipping it for 5min');
+  });
+}
 
 async function fromDictionaryApi(word: string): Promise<WordEntry> {
   if (Date.now() < dictApiDownUntil) throw new Error('dictionaryapi cooldown');
@@ -289,7 +291,7 @@ export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {
   if (cached) {
     const entry = JSON.parse(cached.payload) as WordEntry;
     if ('related' in entry) {
-      console.log(`[lookup] ${word} ${Date.now() - t0}ms (cache)`);
+      console.error(`[lookup] ${word} ${Date.now() - t0}ms (cache)`);
       return entry;
     }
   }
@@ -312,7 +314,7 @@ export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {
   }
 
   putEntry(word, JSON.stringify(entry));
-  console.log(`[lookup] ${word} ${Date.now() - t0}ms (${source})`);
+  console.error(`[lookup] ${word} ${Date.now() - t0}ms (${source})`);
 
   // ponytail: depth-1 prefetch, serial + paced — predictive cache for link
   // navigation without hammering wiktionary's rate limit.

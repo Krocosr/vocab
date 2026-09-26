@@ -2,7 +2,7 @@ import express from 'express';
 import compression from 'compression';
 import { fileURLToPath } from 'node:url';
 import { getEntry, listSaved, listTags, recordReview, reviewQueue, setSaved } from './db.js';
-import { fetchWord, suggest, WordNotFound } from './dictionary.js';
+import { fetchWord, probeDictApi, suggest, WordNotFound } from './dictionary.js';
 
 const app = express();
 app.use(compression());
@@ -84,3 +84,4 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 const port = Number(process.env.PORT ?? 8080);
 app.listen(port, '0.0.0.0', () => console.log(`vocab on :${port}`));
+probeDictApi();

@@ -2,6 +2,7 @@
   "name": "vocab",
   "version": "1.0.0",
   "main": "dist/index.js",
+  "bin": { "vocab": "dist/cli.js" },
   "type": "module",
   "scripts": {
     "build": "tsc",

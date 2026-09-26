@@ -45,6 +45,22 @@ npm start          # PORT=8737 node dist/index.js
 `npm run dev` runs via tsx without a build step; `npm run selfcheck` runs the
 assert checks (`--live` to exercise the real APIs).
 
+## CLI
+
+The same thing from your terminal — it reads and writes the same
+`data/vocab.db` as the server, so words you save here show up in the web app:
+
+```sh
+npm link          # once — puts `vocab` on your PATH
+
+vocab banality            # look up a word
+vocab save banality -t "king in yellow"
+vocab list                # saved words (vocab list king in yellow to filter)
+vocab tags                # tag counts
+vocab rm banality
+vocab review              # interactive reveal-card pass
+```
+
 ## Notes
 
 - Your data is `data/vocab.db` — one table that doubles as lookup cache and
