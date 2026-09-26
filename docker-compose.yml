@@ -1,0 +1,9 @@
+services:
+  vocab:
+    build: .
+    container_name: vocab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT:-8737}:8080"
+    volumes:
+      - ./data:/app/data

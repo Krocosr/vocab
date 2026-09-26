@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>vocab</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="wordmark" href="#/">vocab</a>
+    <nav>
+      <a href="#/" data-nav="search">Search</a>
+      <a href="#/saved" data-nav="saved">Saved</a>
+      <a href="#/review" data-nav="review">Review</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-search">
+      <form id="searchForm" role="search">
+        <input id="searchInput" type="search" list="suggest" placeholder="Search a word…"
+               autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+        <datalist id="suggest"></datalist>
+      </form>
+      <div id="result"></div>
+    </section>
+
+    <section id="view-saved" hidden>
+      <div id="savedList"></div>
+    </section>
+
+    <section id="view-review" hidden>
+      <div id="reviewCard"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    Definitions: dictionaryapi.dev · Etymology: Wiktionary (CC BY-SA)
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
