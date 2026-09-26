@@ -22,6 +22,7 @@ export interface WordEntry {
   meanings: Meaning[];
   sourceUrls: string[];
   fetchedAt: string;
+  language: string | null;
 }
 
 export class WordNotFound extends Error {
@@ -145,7 +146,7 @@ async function wiktionaryExtras(word: string, pageHtml: string) {
   return { origin, related: [...new Set(related)].slice(0, MAX_RELATED) };
 }
 
-function normalizeWiktionary(data: any, word: string): Pick<WordEntry, 'meanings'> {
+function normalizeWiktionary(data: any, word: string): Pick<WordEntry, 'meanings' | 'language'> {
   const english = data.en ?? Object.values(data)[0] as any[];
   const meanings: Meaning[] = (english ?? [])
     .filter((m: any) => m.definitions?.length)
@@ -158,7 +159,8 @@ function normalizeWiktionary(data: any, word: string): Pick<WordEntry, 'meanings
         antonyms: [],
       })),
     }));
-  return { meanings };
+  const lang = String(english?.[0]?.language ?? '').toLowerCase();
+  return { meanings, language: lang && lang !== 'english' ? lang : null };
 }
 
 async function fromWiktionary(word: string): Promise<WordEntry> {
@@ -171,7 +173,7 @@ async function fromWiktionary(word: string): Promise<WordEntry> {
   if (defRes.status === 404) throw new WordNotFound(null);
   if (!defRes.ok) throw new Error(`wiktionary ${defRes.status}`);
 
-  const { meanings } = normalizeWiktionary(await defRes.json(), word);
+  const { meanings, language } = normalizeWiktionary(await defRes.json(), word);
   if (!meanings.length) throw new WordNotFound(null);
 
   const extras = await wiktionaryExtras(word, pageHtml);
@@ -186,6 +188,39 @@ async function fromWiktionary(word: string): Promise<WordEntry> {
     meanings,
     sourceUrls: [`${wiktApi}/wiki/${enc(word)}`],
     fetchedAt: new Date().toISOString(),
+    language,
+  };
+}
+
+/* ---------- jisho (japanese) ---------- */
+
+// hiragana/katakana/kanji in the query means the user typed japanese
+const CJK_RE = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+
+async function fromJisho(word: string): Promise<WordEntry> {
+  const res = await fetchJson(`https://jisho.org/api/v1/search/words?keyword=${enc(word)}`);
+  const d = res?.data?.[0];
+  if (!d?.senses?.length) throw new WordNotFound(null);
+  const meanings: Meaning[] = d.senses.slice(0, 8).map((s: any) => ({
+    partOfSpeech: String(s.parts_of_speech?.[0] ?? 'word').toLowerCase(),
+    definitions: (s.english_definitions ?? []).slice(0, MAX_DEFS_PER_POS)
+      .map((text: string) => ({ text, example: null, synonyms: [], antonyms: [] })),
+  })).filter((m: Meaning) => m.definitions.length);
+  if (!meanings.length) throw new WordNotFound(null);
+  const forms = (d.japanese ?? []) as { word?: string; reading?: string }[];
+  const head = forms[0];
+  return {
+    word: head?.word ?? word,
+    phonetic: head?.reading && head.reading !== head.word ? head.reading : null,
+    audioUrl: null,
+    origin: null,
+    formOf: null,
+    related: [...new Set(forms.flatMap(j => [j.word, j.reading]).filter(Boolean) as string[])]
+      .filter(w => w !== head?.word).slice(0, MAX_RELATED),
+    meanings,
+    sourceUrls: [`https://jisho.org/word/${enc(d.slug ?? word)}`],
+    fetchedAt: new Date().toISOString(),
+    language: 'japanese',
   };
 }
 
@@ -220,7 +255,7 @@ export function normalizeDictionaryApi(entries: any[], query: string): WordEntry
   const origin = entries.find(e => e.origin)?.origin ?? null;
   const sourceUrls = [...new Set(entries.flatMap(e => e.sourceUrls ?? []))];
 
-  return { word: entries[0]?.word ?? query, phonetic, audioUrl, origin, formOf: null, related: [], meanings, sourceUrls, fetchedAt: new Date().toISOString() };
+  return { word: entries[0]?.word ?? query, phonetic, audioUrl, origin, formOf: null, related: [], meanings, sourceUrls, fetchedAt: new Date().toISOString(), language: null };
 }
 
 // ponytail: dictionaryapi.dev goes down for days; after a network failure we skip
@@ -269,15 +304,25 @@ async function fromDictionaryApi(word: string): Promise<WordEntry> {
 
 /* ---------- public ---------- */
 
-// typed prefixes repeat constantly; a short TTL cache saves the opensearch call
-const suggestCache = new Map<string, { at: number; words: string[] }>();
+export interface Suggestion { text: string; lang?: string }
 
-export async function suggest(q: string): Promise<string[]> {
+// typed prefixes repeat constantly; a short TTL cache saves the opensearch call
+const suggestCache = new Map<string, { at: number; words: Suggestion[] }>();
+
+export async function suggest(q: string): Promise<Suggestion[]> {
   const hit = suggestCache.get(q);
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.words;
-  const res = await fetchJson(
-    `${wiktApi}/w/api.php?action=opensearch&search=${enc(q)}&limit=8&namespace=0&format=json`);
-  const words: string[] = Array.isArray(res?.[1]) ? res[1] : [];
+  let words: Suggestion[];
+  if (CJK_RE.test(q)) {
+    const res = await fetchJson(`https://jisho.org/api/v1/search/words?keyword=${enc(q)}`);
+    words = (res?.data ?? []).slice(0, 8)
+      .map((d: any) => ({ text: d.japanese?.[0]?.word ?? d.japanese?.[0]?.reading ?? d.slug, lang: 'japanese' }))
+      .filter((s: Suggestion) => s.text);
+  } else {
+    const res = await fetchJson(
+      `${wiktApi}/w/api.php?action=opensearch&search=${enc(q)}&limit=8&namespace=0&format=json`);
+    words = (Array.isArray(res?.[1]) ? res[1] : []).map((text: string) => ({ text }));
+  }
   if (suggestCache.size > 500) suggestCache.clear();
   suggestCache.set(q, { at: Date.now(), words });
   return words;
@@ -296,21 +341,23 @@ export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {
     }
   }
 
-  let entry: WordEntry;
-  let source = 'dictapi';
-  try {
-    entry = await fromDictionaryApi(word);
-  } catch (primaryErr) {
-    source = 'wiktionary';
-    try {
-      entry = await fromWiktionary(word);
-    } catch (fallbackErr) {
-      if (fallbackErr instanceof WordNotFound) {
-        const suggestions = await suggest(word).catch(() => [] as string[]);
-        throw new WordNotFound(suggestions[0] ?? null);
-      }
-      throw primaryErr instanceof WordNotFound ? fallbackErr : primaryErr;
+  const sources: [string, () => Promise<WordEntry>][] = CJK_RE.test(word)
+    ? [['jisho', () => fromJisho(word)], ['wiktionary', () => fromWiktionary(word)]]
+    : [['dictapi', () => fromDictionaryApi(word)], ['wiktionary', () => fromWiktionary(word)], ['jisho', () => fromJisho(word)]];
+
+  let entry: WordEntry | undefined;
+  let source = '';
+  let lastErr: unknown;
+  for (const [name, fn] of sources) {
+    try { entry = await fn(); source = name; break; }
+    catch (e) { lastErr = e; }
+  }
+  if (!entry) {
+    if (lastErr instanceof WordNotFound) {
+      const s = await suggest(word).catch(() => [] as Suggestion[]);
+      throw new WordNotFound(s[0]?.text ?? null);
     }
+    throw lastErr;
   }
 
   putEntry(word, JSON.stringify(entry));

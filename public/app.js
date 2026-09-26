@@ -26,8 +26,12 @@ function attachDropdown(input, onPick) {
     if (!items.length) return;
     list = el('ul', 'dropdown');
     for (const item of items) {
-      const li = el('li', null, item);
-      li.addEventListener('mousedown', e => { e.preventDefault(); onPick(item); close(); });
+      const text = typeof item === 'string' ? item : item.text;
+      const li = el('li');
+      li.dataset.v = text;
+      li.append(text);
+      if (item.lang) li.append(' ', el('span', 'dd-badge', item.lang));
+      li.addEventListener('mousedown', e => { e.preventDefault(); onPick(text); close(); });
       list.append(li);
     }
     wrap.append(list);
@@ -43,7 +47,7 @@ function attachDropdown(input, onPick) {
       items[idx].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' && idx >= 0) {
       e.preventDefault();
-      onPick(items[idx].textContent);
+      onPick(items[idx].dataset.v ?? items[idx].textContent);
       close();
     } else if (e.key === 'Escape') {
       close();
@@ -165,7 +169,9 @@ function renderCard(entry, mount) {
 
   const head = el('div', 'card-head');
   const titleWrap = el('div');
-  titleWrap.append(el('h1', null, entry.word));
+  const h1 = el('h1', null, entry.word);
+  if (entry.language) h1.append(' ', el('span', 'dd-badge', entry.language));
+  titleWrap.append(h1);
   if (entry.phonetic) titleWrap.append(el('div', 'phonetic', entry.phonetic));
   head.append(titleWrap);
 

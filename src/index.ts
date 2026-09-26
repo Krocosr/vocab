@@ -9,7 +9,7 @@ app.use(compression());
 app.use(express.json());
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { maxAge: 0 }));
 
-const WORD_RE = /^[a-zA-Z' -]{1,64}$/;
+const WORD_RE = /^[\p{L}\p{M}\p{N}' -]{1,64}$/u;
 
 function validWord(w: string): boolean {
   return WORD_RE.test(w) && w.trim().length > 0;

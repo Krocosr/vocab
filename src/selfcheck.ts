@@ -37,7 +37,7 @@ if (process.argv.includes('--live')) {
   const { fetchWord, suggest, WordNotFound } = await import('./dictionary.js');
   const w = await fetchWord('hello');
   assert.ok(w.meanings.length > 0);
-  assert.ok((await suggest('hel')).includes('hello'));
+  assert.ok((await suggest('hel')).some(s => s.text === 'hello'));
   const infl = await fetchWord('rouses');
   assert.equal(infl.formOf?.word, 'rouse');
   assert.ok(Array.isArray(infl.related));

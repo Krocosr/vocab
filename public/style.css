@@ -106,6 +106,16 @@ main {
 
 .dropdown li:hover, .dropdown li.sel { background: var(--color-accent-soft); }
 
+.dd-badge {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+
 #searchInput {
   width: 100%;
   min-height: 56px;
