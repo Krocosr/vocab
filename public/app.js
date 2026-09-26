@@ -274,6 +274,7 @@ function renderCard(entry, mount) {
     sec.append(el('h2', null, 'Alternative meanings'));
     for (const m of rest) {
       const det = el('details');
+      det.open = true;
       det.append(el('summary', null, m.pos));
       const ol = el('ol', 'defs');
       for (const d of m.defs) {

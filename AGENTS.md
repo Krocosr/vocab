@@ -24,16 +24,21 @@ history/etymology, alternative meanings) + saved list + reveal-style review.
 ## Word data pipeline (`src/dictionary.ts`)
 
 1. SQLite cache hit → return (payloads without `related` refetch once — stale shape)
-2. `api.dictionaryapi.dev` → normalize; on network error/5xx sets `dictApiDownUntil`
-   (5 min skip — the API goes down for days; saves 8s timeout per lookup)
-3. Fallback: Wiktionary `rest_v1/page/definition/<w>` (parallel with `prop=sections`)
-4. Extras: `Etymology*` + `Derived|Related terms|See also` sections → `prop=text`
-   HTML → `<p>`-only prose (origin) / `/wiki/x` links (related). Caps: 1500 chars,
-   12 related, 3 related-sections
+2. Boot probe: 2.5s dictapi ping at module load sets `dictApiDownUntil` if dead —
+   the API goes down for days; first lookup would otherwise pay an 8s timeout.
+   Runtime failures refresh the 5min cooldown. dictapi fetches use a 4s timeout.
+3. `api.dictionaryapi.dev` → normalize; else fallback:
+   Wiktionary `rest_v1/page/definition/<w>` + `action=parse&prop=text` (full page)
+   fetched in PARALLEL — 2 requests total per new word
+4. Extras from the page HTML: `sliceSections()` splits by `mw-heading` ids →
+   `Etymology*` → `<p>`-only prose (origin); `Derived|Related terms|See also` →
+   `/wiki/x` links (related). Caps: 1500 chars, 12 related
 5. `formOf` = regex on first definition text ("plural of rouse" → `{kind, word}`)
-6. Prefetch: depth-1 only, serial queue, 1.5s pace (Wiktionary 429s otherwise);
-   429 → one retry after 2s
+6. Prefetch: formOf + related, depth-1 only, serial queue, 1.5s pace
+   (Wiktionary 429s otherwise); 429 → one retry after 2s
 7. 404 → Wiktionary `action=opensearch` once → `suggestion` in error body
+8. `[lookup]`/`[wikt]`/`[probe]` logs carry per-stage timings — check them when
+   lookups feel slow
 
 All upstream fetches: built-in `fetch`, 8s `AbortSignal.timeout`, descriptive
 `User-Agent` (Wikimedia requires one). Runtime needs internet — no offline DB.

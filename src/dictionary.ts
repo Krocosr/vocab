@@ -32,6 +32,7 @@ export class WordNotFound extends Error {
 
 const HEADERS = { 'User-Agent': 'vocab-selfhosted/1.0 (self-hosted dictionary)' };
 const TIMEOUT = 8000;
+const DICTAPI_TIMEOUT = 4000;
 const MAX_DEFS_PER_POS = 6;
 const MAX_SYNONYMS = 8;
 const MAX_ETYMOLOGY = 1500;
@@ -106,28 +107,34 @@ export const detectFormOf = (text: string): { kind: string; word: string } | nul
 const wiktApi = 'https://en.wiktionary.org';
 const enc = encodeURIComponent;
 
-async function fetchSections(word: string): Promise<{ index: string; line: string }[]> {
-  const res = await fetchJson(`${wiktApi}/w/api.php?action=parse&page=${enc(word)}&prop=sections&format=json&formatversion=2`);
-  return res?.parse?.sections ?? [];
-}
-
-async function fetchSectionHtml(word: string, index: string): Promise<string> {
-  const res = await fetchJson(`${wiktApi}/w/api.php?action=parse&page=${enc(word)}&prop=text&section=${index}&format=json&formatversion=2`);
+async function fetchPageHtml(word: string): Promise<string> {
+  const res = await fetchJson(`${wiktApi}/w/api.php?action=parse&page=${enc(word)}&prop=text&format=json&formatversion=2`);
   return res?.parse?.text ?? '';
 }
 
-async function wiktionaryExtras(word: string, sections: { index: string; line: string }[] | null) {
-  const list = sections ?? await fetchSections(word).catch(() => []);
-  const etym = list.find(s => /^Etymology/.test(s.line));
-  const relSections = list.filter(s => /^(Derived|Related) terms|^See also/i.test(s.line));
+// slice full Parsoid HTML into named sections by heading ids
+function sliceSections(html: string): Map<string, string> {
+  const heads = [...html.matchAll(/<div class="mw-heading[^"]*"><h[1-6][^>]*?id="([^"]+)"[^>]*>/g)];
+  const map = new Map<string, string>();
+  heads.forEach((m, i) => {
+    const end = heads[i + 1]?.index ?? html.length;
+    map.set(decodeEntities(m[1]).replace(/_/g, ' '), html.slice(m.index, end));
+  });
+  return map;
+}
 
-  const [etymHtml, ...relHtmls] = await Promise.all([
-    etym ? fetchSectionHtml(word, etym.index) : Promise.resolve(''),
-    ...relSections.slice(0, 3).map(s => fetchSectionHtml(word, s.index)),
-  ]);
-
-  const origin = paragraphText(etymHtml).slice(0, MAX_ETYMOLOGY) || null;
-  const related = relHtmls.flatMap(sectionLinks)
+async function wiktionaryExtras(word: string, pageHtml: string) {
+  const sections = sliceSections(pageHtml);
+  let origin: string | null = null;
+  for (const [name, html] of sections) {
+    if (/^Etymology/.test(name)) {
+      origin = paragraphText(html).slice(0, MAX_ETYMOLOGY) || null;
+      break;
+    }
+  }
+  const related = [...sections.entries()]
+    .filter(([name]) => /^(Derived|Related) terms|^See also/i.test(name))
+    .flatMap(([, html]) => sectionLinks(html))
     .map(w => w.trim())
     .filter(w => w && w.toLowerCase() !== word && !w.includes('/'));
   return { origin, related: [...new Set(related)].slice(0, MAX_RELATED) };
@@ -150,17 +157,20 @@ function normalizeWiktionary(data: any, word: string): Pick<WordEntry, 'meanings
 }
 
 async function fromWiktionary(word: string): Promise<WordEntry> {
-  const [defRes, sections] = await Promise.all([
+  const t0 = Date.now();
+  const [defRes, pageHtml] = await Promise.all([
     fetchRes(`${wiktApi}/api/rest_v1/page/definition/${enc(word)}`),
-    fetchSections(word).catch(() => [] as { index: string; line: string }[]),
+    fetchPageHtml(word).catch(() => ''),
   ]);
+  const tFetch = Date.now() - t0;
   if (defRes.status === 404) throw new WordNotFound(null);
   if (!defRes.ok) throw new Error(`wiktionary ${defRes.status}`);
 
   const { meanings } = normalizeWiktionary(await defRes.json(), word);
   if (!meanings.length) throw new WordNotFound(null);
 
-  const extras = await wiktionaryExtras(word, sections);
+  const extras = await wiktionaryExtras(word, pageHtml);
+  console.log(`[wikt] ${word} fetch=${tFetch}ms extras=${Date.now() - t0 - tFetch}ms`);
   return {
     word,
     phonetic: null,
@@ -212,12 +222,24 @@ export function normalizeDictionaryApi(entries: any[], query: string): WordEntry
 // it for 5 min instead of paying an 8s timeout on every lookup. Refresh on success.
 let dictApiDownUntil = 0;
 
+// boot probe: learn dictapi's reachability once, with a short timeout, so the
+// first real lookup doesn't pay the full timeout on a dead host.
+void fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/test`, {
+  headers: HEADERS, signal: AbortSignal.timeout(2500),
+}).then(res => {
+  if (!res.ok && res.status !== 404) dictApiDownUntil = Date.now() + 5 * 60_000;
+  console.log(`[probe] dictionaryapi.dev ${res.ok || res.status === 404 ? 'up' : 'down'}`);
+}).catch(() => {
+  dictApiDownUntil = Date.now() + 5 * 60_000;
+  console.log('[probe] dictionaryapi.dev unreachable — skipping it for 5min');
+});
+
 async function fromDictionaryApi(word: string): Promise<WordEntry> {
   if (Date.now() < dictApiDownUntil) throw new Error('dictionaryapi cooldown');
   let res: Response;
   try {
     res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${enc(word)}`, {
-      headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT),
+      headers: HEADERS, signal: AbortSignal.timeout(DICTAPI_TIMEOUT),
     });
   } catch (e) {
     dictApiDownUntil = Date.now() + 5 * 60_000;
@@ -230,7 +252,8 @@ async function fromDictionaryApi(word: string): Promise<WordEntry> {
   }
 
   const entry = normalizeDictionaryApi(await res.json(), word);
-  const extras = await wiktionaryExtras(word, null);
+  const pageHtml = await fetchPageHtml(word).catch(() => '');
+  const extras = await wiktionaryExtras(word, pageHtml);
   if (!entry.origin) entry.origin = extras.origin;
   entry.related = extras.related;
   entry.formOf = detectFormOf(entry.meanings[0]?.definitions[0]?.text ?? '');
@@ -247,17 +270,23 @@ export async function suggest(q: string): Promise<string[]> {
 
 export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {
   const word = raw.toLowerCase().trim();
+  const t0 = Date.now();
 
   const cached = getEntry(word);
   if (cached) {
     const entry = JSON.parse(cached.payload) as WordEntry;
-    if ('related' in entry) return entry; // pre-related payloads re-fetch once
+    if ('related' in entry) {
+      console.log(`[lookup] ${word} ${Date.now() - t0}ms (cache)`);
+      return entry;
+    }
   }
 
   let entry: WordEntry;
+  let source = 'dictapi';
   try {
     entry = await fromDictionaryApi(word);
   } catch (primaryErr) {
+    source = 'wiktionary';
     try {
       entry = await fromWiktionary(word);
     } catch (fallbackErr) {
@@ -270,6 +299,7 @@ export async function fetchWord(raw: string, depth = 0): Promise<WordEntry> {
   }
 
   putEntry(word, JSON.stringify(entry));
+  console.log(`[lookup] ${word} ${Date.now() - t0}ms (${source})`);
 
   // ponytail: depth-1 prefetch, serial + paced — predictive cache for link
   // navigation without hammering wiktionary's rate limit.
