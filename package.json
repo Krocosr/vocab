@@ -1,6 +1,6 @@
 {
   "name": "@krocosr/vocab",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Self-hosted vocabulary builder — look up words while reading and save where you found them",
   "keywords": [
     "vocabulary",
