@@ -10,7 +10,9 @@ for (const suffix of ['', '-wal', '-shm'])
   if (existsSync(DB_PATH + suffix)) copyFileSync(DB_PATH + suffix, DB_PATH + suffix + '.bak');
 
 export const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA journal_mode = WAL');
+// WAL corrupts on Docker Desktop bind mounts (shared-memory -shm over the
+// fs proxy); plain DELETE journal is plenty for this app's write volume.
+db.exec('PRAGMA journal_mode = DELETE');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS entries (
