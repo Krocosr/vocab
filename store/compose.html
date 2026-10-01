@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vocab — store card composer</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { margin: 0; padding: 24px; background: #f4f4f5; font: 13px/1.5 system-ui, sans-serif; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+  figure { margin: 0; }
+  img { width: 100%; display: block; border-radius: 8px; box-shadow: 0 6px 22px rgba(0,0,0,.16); }
+  figcaption { margin-top: 6px; color: #52525b; }
+</style>
+</head>
+<body>
+<h1 style="font:600 15px system-ui;margin:0 0 16px">Store cards — preview at carousel and full size</h1>
+<div class="grid" id="grid"></div>
+
+<script type="module">
+import { renderAll } from './compose.js';
+
+const RAW = 'raw';
+
+const results = await renderAll(RAW);
+const grid = document.getElementById('grid');
+for (const r of results) {
+  const fig = document.createElement('figure');
+  const img = document.createElement('img');
+  img.src = r.dataUrl;
+  const cap = document.createElement('figcaption');
+  cap.textContent = r.file;
+  fig.append(img, cap);
+  grid.append(fig);
+}
+// handle for the agent to pull PNG bytes out
+globalThis.__cards = results;
+globalThis.__ready = true;
+</script>
+</body>
+</html>

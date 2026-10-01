@@ -15,6 +15,22 @@ is cached in a local sqlite file, so wandering from word to word stays fast.
 There are no accounts and no API keys; it talks to free dictionary sources
 (dictionaryapi.dev and Wiktionary) and keeps one file of your data.
 
+## Android app
+
+The same app ships to Google Play, built on the same `public/` frontend with
+Capacitor and no backend — saved words, tags and review history live in on-device
+SQLite. See [`android/README.md`](android/README.md) for the toolchain and
+signing setup, `docs/monetization.md` for the free/paid split, and
+`store/listing.md` for the Play listing copy.
+
+```sh
+npm run android:sync     # copy public/ into the Android project
+npm run android:bundle   # signed AAB → android/app/build/outputs/bundle/release/
+```
+
+The keystore is not committed. Generate one (see `android/README.md`) and create
+`android/signing.properties` before running a release build.
+
 ## Preview
 
 | Search | Saved | Review |

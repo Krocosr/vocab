@@ -1,0 +1,72 @@
+/* Hallmark · macrostructure: Marquee Hero · tone: declarative · anchor hue: cool-blue
+ * scope: store/card composition (store/screenshots) — the locked system for
+ * Play listing cards. Read by store/compose.js; never inline a raw value there.
+ *
+ * The defect this fixes: the hero headline sat at 60px on a 1080px canvas —
+ * 5.5% of width — which renders ~11px in Play's ~200px carousel thumbnail and
+ * reads as unheroic at full size too. Type now leads the card; the device is
+ * proof, not the subject.
+ */
+
+:root {
+  /* ---- palette: five saturated card fields, one per screenshot ---- */
+  --card-hero:    oklch(38% 0.17 264);   /* blue   — the lead card  */
+  --card-second:  oklch(42% 0.20 300);   /* purple — etymology     */
+  --card-third:   oklch(38% 0.11 172);   /* teal   — saved list    */
+  --card-fourth:  oklch(46% 0.16 45);    /* orange — review deck   */
+  --card-fifth:   oklch(42% 0.18 10);    /* rose   — revealed card */
+
+  /* second stop of each card's diagonal wash, same hue, higher L */
+  --wash-hero:    oklch(50% 0.19 264);
+  --wash-second:  oklch(52% 0.22 300);
+  --wash-third:   oklch(47% 0.12 172);
+  --wash-fourth:  oklch(55% 0.18 45);
+  --wash-fifth:   oklch(52% 0.20 10);
+
+  /* ---- ink on those fields ---- */
+  --ink-card:       oklch(99% 0 0);
+  --ink-card-soft:  oklch(99% 0 0 / 0.84);
+  --device-body:    oklch(18% 0.01 265);
+  --device-screen:  oklch(98% 0 0);
+  --device-shadow:  oklch(20% 0.05 265 / 0.38);
+
+  /* ---- type scale: the fix ----
+     Sizes are percentages of the 1080px canvas. A card headline at 10% reads
+     ~20px in a 200px thumbnail; the old 5.5% read as ~11px. */
+  --type-hero:     112px;   /* lead card only — 10.4% of canvas */
+  --type-display:   72px;   /* 6.7% — secondary cards          */
+  --type-title:     56px;   /* 5.2% — compact cards            */
+  --type-sub-hero:  40px;   /* 3.7%                           */
+  --type-sub:       32px;   /* 3.0%                           */
+
+  --weight-display: 800;
+  --weight-sub:     500;
+
+  /* display tracking tightens as size grows; italic is banned on headings */
+  --track-hero:     -0.035em;
+  --track-display:  -0.025em;
+  --track-sub:      -0.005em;
+
+  --leading-hero:     1.02;
+  --leading-display:  1.08;
+
+  /* ---- geometry ---- */
+  --card-w: 1080;
+  --card-h: 1920;
+  --pad-card: 64;      /* headline left margin */
+
+  /* ---- surface texture ----
+     Cards 03 and 04 left large flat fields that read as unfinished at carousel
+     size. Two devices fill the frame, so the field needs its own content:
+     a soft glow for depth and a giant ghost of the word the device is showing,
+     which ties the composition to real content rather than adding noise. */
+  --ghost-ink:     oklch(99% 0 0 / 0.19);   /* 0.10 read as nothing on a saturated field */
+  --ghost-size:    260px;
+  --glow-ink:      oklch(99% 0 0 / 0.20);
+  --glow-radius:   680;
+  --radius-device: 46;
+  --radius-screen: 37;
+  --bezel: 9;
+  --device-shadow-blur: 50;
+  --device-shadow-y: 18;
+}

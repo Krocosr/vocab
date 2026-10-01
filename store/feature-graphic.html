@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html { background: #1e3a8a; }
+  body {
+    width: 1024px; height: 500px;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: linear-gradient(135deg, #2563eb 0%, #1e40af 55%, #1e3a8a 100%);
+    color: #fff; display: flex; align-items: center; gap: 44px;
+    padding: 0 56px; position: relative; overflow: hidden;
+  }
+  .glow {
+    position: absolute; width: 620px; height: 620px; right: -180px; top: -230px;
+    background: radial-gradient(circle, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 68%);
+  }
+  .left { flex: 1; position: relative; }
+  h1 { font-size: 62px; font-weight: 800; letter-spacing: -2.4px; line-height: 1.02; }
+  .sub { margin-top: 18px; font-size: 23px; line-height: 1.42; opacity: .95; font-weight: 500; }
+  .tags { margin-top: 26px; display: flex; gap: 9px; flex-wrap: wrap; }
+  .tag {
+    font-size: 15px; font-weight: 600; padding: 8px 15px; border-radius: 999px;
+    background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3);
+  }
+  .card {
+    width: 372px; background: #fff; color: #111827; border-radius: 20px;
+    padding: 26px 26px 24px; box-shadow: 0 26px 60px rgba(0,0,0,.34); position: relative;
+  }
+  .word { font-size: 34px; font-weight: 800; letter-spacing: -1.1px; }
+  .pos {
+    display: inline-block; margin-top: 9px; font-size: 13px; font-weight: 700;
+    color: #1d4ed8; background: #e5edff; padding: 4px 11px; border-radius: 999px;
+  }
+  .def { margin-top: 14px; font-size: 17.5px; line-height: 1.45; color: #374151; }
+  .hist {
+    margin-top: 15px; padding-top: 14px; border-top: 1px solid #e5e7eb;
+    font-size: 14.5px; line-height: 1.42; color: #6b7280;
+  }
+  .hist b { color: #2563eb; font-weight: 700; letter-spacing: .06em; font-size: 11.5px; display: block; margin-bottom: 5px; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="left">
+    <h1>Vocab</h1>
+    <div class="sub">Look up a word. Learn where it<br>came from. Never lose it again.</div>
+    <div class="tags">
+      <span class="tag">Word origins</span>
+      <span class="tag">Tag &amp; review</span>
+      <span class="tag">Ad-free</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="word">serendipity</div>
+    <span class="pos">noun</span>
+    <div class="def">The phenomenon of making an unplanned, fortunate discovery.</div>
+    <div class="hist"><b>HISTORY</b>Coined by Horace Walpole in 1754, from Serendip, the old name for Sri Lanka.</div>
+  </div>
+</body>
+</html>
