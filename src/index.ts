@@ -1,13 +1,18 @@
 import express from 'express';
 import compression from 'compression';
 import { fileURLToPath } from 'node:url';
-import { getEntry, listSaved, listTags, recordReview, reviewQueue, setSaved } from './db.js';
+import { getEntry, listSaved, listTags, logReview, listReviewHistory, recordReview, reviewQueue, setSaved, smartReviewQueue } from './db.js';
 import { fetchWord, probeDictApi, suggest, WordNotFound } from './dictionary.js';
 
 const app = express();
 app.use(compression());
 app.use(express.json());
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { maxAge: 0 }));
+
+// Play Console requires a stable public URL for the privacy policy; keep the
+// extensionless path so the listing link does not break if the file is renamed.
+app.get('/privacy', (_req, res) => res.sendFile(
+  fileURLToPath(new URL('../public/privacy.html', import.meta.url))));
 
 const WORD_RE = /^[a-zA-Z' -]{1,64}$/;
 
@@ -74,7 +79,18 @@ app.post('/api/words/:word/review', (req, res) => {
   const known = req.body?.known !== false;
   const result = recordReview(word, known);
   if (!result.changes) return res.status(404).json({ error: 'not saved' });
+  logReview(word, known);
   res.json({ ok: true });
+});
+
+app.get('/api/words/:word/reviews', (req, res) => {
+  const word = req.params.word.toLowerCase().trim();
+  if (!validWord(word)) return res.status(400).json({ error: 'invalid word' });
+  res.json(listReviewHistory(word).map(r => ({ known: !!r.known, reviewed_at: r.reviewed_at })));
+});
+
+app.get('/api/review/smart', (_req, res) => {
+  res.json(smartReviewQueue().map(r => ({ ...JSON.parse(r.payload), word: r.word })));
 });
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

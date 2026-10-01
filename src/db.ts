@@ -25,6 +25,18 @@ CREATE TABLE IF NOT EXISTS entries (
   last_reviewed_at TEXT
 )`);
 
+// Per-review outcomes. `entries` keeps only the running counts, so the
+// review-history and smart-review features need their own log.
+db.exec(`
+CREATE TABLE IF NOT EXISTS reviews (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  word        TEXT NOT NULL,
+  known       INTEGER NOT NULL,
+  reviewed_at TEXT NOT NULL
+)`);
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_reviews_word ON reviews(word, reviewed_at)');
+
 try { db.exec('ALTER TABLE entries ADD COLUMN saved_tag TEXT'); } catch {}
 
 export interface EntryRow {
@@ -77,6 +89,27 @@ export const recordReview = (word: string, known: boolean) =>
               known_count = known_count + ?, last_reviewed_at = ?
               WHERE word = ? AND saved_at IS NOT NULL`)
     .run(known ? 1 : 0, now(), word);
+
+// Record the aggregate counters and the per-review row together, so a history
+// can never drift from the counts.
+export const logReview = (word: string, known: boolean) =>
+  db.prepare('INSERT INTO reviews (word, known, reviewed_at) VALUES (?, ?, ?)')
+    .run(word, known ? 1 : 0, now());
+
+export const listReviewHistory = (word: string) =>
+  db.prepare(`SELECT known, reviewed_at FROM reviews WHERE word = ?
+              ORDER BY reviewed_at DESC, id DESC`)
+    .all(word) as unknown as { known: number; reviewed_at: string }[];
+
+// Words the user has actually missed come first — that is the whole point of
+// the smart deck. A word never reviewed is NOT "0% known"; it is unmeasured, so
+// it sorts after the known-weak ones instead of swamping them.
+export const smartReviewQueue = () =>
+  db.prepare(`SELECT word, payload FROM entries WHERE saved_at IS NOT NULL
+              ORDER BY CASE WHEN review_count = 0 THEN 1 ELSE 0 END ASC,
+                       CAST(known_count AS REAL) / review_count ASC,
+                       last_reviewed_at IS NULL DESC, last_reviewed_at ASC`)
+    .all() as unknown as Pick<EntryRow, 'word' | 'payload'>[];
 
 export const reviewQueue = () =>
   db.prepare(`SELECT word, payload FROM entries WHERE saved_at IS NOT NULL
