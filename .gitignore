@@ -5,3 +5,5 @@ data/
 
 AGENTS.md
 *.bak
+
+.hallmark/
