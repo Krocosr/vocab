@@ -35,17 +35,30 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "selfcheck": "tsx src/selfcheck.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "android:init": "cap init",
+    "android:add": "cap add android",
+    "android:sync": "cap sync android",
+    "android:open": "cap open android",
+    "android:bundle": "cd android && (test -f gradlew && ./gradlew bundleRelease || gradlew.bat bundleRelease)",
+    "android:clean": "cd android && (test -f gradlew && ./gradlew clean || gradlew.bat clean)",
+    "harness": "tsx scripts/lookup-harness.ts"
   },
   "dependencies": {
     "compression": "^1.8.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor-community/sqlite": "^8.1.1",
+    "capacitor-billing": "^8.2.0"
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.3",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/android": "^8.5.2"
   }
 }

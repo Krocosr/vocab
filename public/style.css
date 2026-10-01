@@ -22,7 +22,7 @@
 
 * { box-sizing: border-box; }
 
-html, body { overflow-x: clip; }
+html, body { overflow-x: clip; scroll-padding-top: 64px; }
 
 body {
   margin: 0;
@@ -54,7 +54,16 @@ a { color: var(--color-accent); }
   letter-spacing: -0.02em;
 }
 
-nav { display: flex; gap: var(--space-sm); }
+/* Outside the header so the phone tab bar can be viewport-fixed; on desktop it
+   is right-aligned in the same column the header uses. */
+nav {
+  display: flex;
+  gap: var(--space-sm);
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 var(--space-sm) var(--space-sm);
+  justify-content: flex-end;
+}
 
 nav a {
   color: var(--color-muted);
@@ -170,10 +179,16 @@ button.primary {
   color: #fff;
 }
 
-button.primary:hover { filter: brightness(0.94); }
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-muted);
+}
+button.ghost:hover { background: var(--color-surface); color: var(--color-text); }
 
+.saved-toolbar { display: flex; gap: var(--space-sm); align-items: center; margin-bottom: var(--space-md); }
+.saved-toolbar .spacer { flex: 1; }
 .card section { margin-top: var(--space-lg); }
-
 .card h2 {
   font-size: 13px;
   font-weight: 700;
@@ -314,26 +329,108 @@ ol.defs li { margin-bottom: var(--space-sm); }
 
 .saved-row .meta { font-size: 13px; color: var(--color-muted); }
 
+.history-row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+.history-row:last-child { border-bottom: none; }
+.history-row .word { font-weight: 600; flex: 1; }
+.history-row .outcome { font-size: 13px; padding: 2px 8px; border-radius: var(--radius-sm); }
+.history-row .outcome.known { background: var(--color-success-soft); color: var(--color-success); }
+.history-row .outcome.again { background: var(--color-error-soft); color: var(--color-error); }
+.history-row .timestamp { font-size: 12px; color: var(--color-muted); white-space: nowrap; }
+
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.history-item {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+.history-item:last-child { border-bottom: none; }
+.history-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.history-badge.known { background: var(--color-success-soft); color: var(--color-success); }
+.history-badge.again { background: var(--color-error-soft); color: var(--color-error); }
+.history-item time { font-size: 13px; color: var(--color-muted); white-space: nowrap; }
+
+.export-bar {
+  margin: var(--space-sm) 0 var(--space-md);
+  padding: var(--space-sm);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.smart-toggle {
+  font-size: 13px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+.smart-toggle:hover { background: var(--color-bg); }
+.smart-toggle.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.history-empty {
+  text-align: center;
+  color: var(--color-muted);
+  padding: var(--space-xl);
+}
 .empty {
   text-align: center;
   color: var(--color-muted);
   padding: var(--space-2xl) var(--space-md);
 }
-
+.review-toolbar { display: flex; gap: var(--space-sm); align-items: center; margin-bottom: var(--space-md); }
+.review-toolbar .spacer { flex: 1; }
 .review-card {
-  min-height: 360px;
+  /* Flex column is load-bearing: it is what lets .review-face (flex:1,
+     min-height:0, overflow-y:auto) actually shrink. As a plain block the face
+     sized to its content and spilled out through the bottom of the card. */
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
-
 .review-face {
   flex: 1;
+  /* min-height:0 is required: a flex item defaults to min-height:auto and so
+     refuses to shrink below its content, which pushed long etymology text
+     straight out through the bottom of the card. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding-block: var(--space-lg);
 }
+
+/* Once revealed the content is usually taller than the face. Centred content
+   overflows in both directions and the first line is clipped under the card
+   heading, so revealed content starts at the top instead. */
+.review-face.revealed {
+  justify-content: flex-start;
+  align-items: stretch;
+  text-align: left;
+}
+
 
 .review-buttons { display: flex; gap: var(--space-sm); margin-top: auto; padding-top: var(--space-lg); }
 .review-buttons button { flex: 1; }
@@ -350,23 +447,116 @@ ol.defs li { margin-bottom: var(--space-sm); }
   * { transition: none !important; }
 }
 
+/* Phone layout. The header becomes a slim sticky bar and the nav becomes a
+   bottom tab bar, which is what makes the Android build read as an app rather
+   than a squeezed web page. */
 @media (max-width: 560px) {
-  .site-header { padding: var(--space-sm); }
-  nav { gap: 0; }
-  nav a { padding: var(--space-xs) 10px; }
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+    /* clear the fixed tab bar, with room for its safe-area inset */
+    padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  }
 
-  .card { padding: var(--space-md); }
-  .card h1 { font-size: var(--text-xl); }
-  .card-head { flex-wrap: wrap; }
-  .card-actions { margin-left: auto; }
+  /* body is a flex column, so the desktop `margin: 0 auto` on these blocks turns
+     them into shrink-to-fit items. The header collapsed to 84px wide — its
+     border read as a stray line under the wordmark instead of a full-width
+     rule. Reset the cross-axis margin and pin the width. */
+  .site-header, main, .site-footer { margin-inline: 0; width: 100%; }
 
-  #searchInput { font-size: var(--text-base); min-height: 52px; }
-  #searchForm { margin-block: var(--space-lg); }
+  main { flex: 1 0 auto; padding-bottom: var(--space-md); }
 
-  .save-form input { width: 120px; }
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    max-width: none;
+    padding: 10px var(--space-sm);
+    /* Opaque, not translucent: scrolled content was showing through the
+       wordmark and muddying the top of the card. */
+    background: #fafafa;
+    border-bottom: 1px solid var(--color-border);
+    justify-content: center;
+  }
+
+  .wordmark { font-size: 19px; letter-spacing: -0.02em; }
+
+  nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    display: flex;
+    gap: 0;
+    /* full-bleed bar: the base rule's side padding would show page background
+       at the edges and shift the tap targets off-centre */
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: rgba(255, 255, 255, .97);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--color-border);
+  }
+
+  nav a {
+    flex: 1;
+    /* Base rule sets display:inline-flex, which shrinks to the label and
+       leaves it pinned left inside its third. Make it a full-width flex box
+       so the label is genuinely centred in the tap target. */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px 4px 15px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .01em;
+    color: var(--color-muted);
+    background: none;
+    border-radius: 0;
+  }
+
+  nav a.active {
+    color: var(--color-accent);
+    background: none;
+    /* active tab marker instead of a filled pill */
+    box-shadow: inset 0 2px 0 var(--color-accent);
+  }
+
+  .site-footer { padding: var(--space-md) var(--space-sm); font-size: 12px; }
+
+  #searchForm { margin-block: var(--space-md) var(--space-lg); }
+  #searchInput { font-size: 16px; min-height: 54px; }
+
+  .card { padding: var(--space-md) var(--space-sm); }
+  .card h1 { font-size: 26px; letter-spacing: -0.02em; }
+  .lede { font-size: var(--text-base); }
+
+  /* Compact enough that a face-down card does not float in whitespace, but
+     capped so a long etymology scrolls inside the card instead of pushing
+     Again / Knew it off the bottom of the screen. */
+  .review-card {
+    min-height: 360px;
+    max-height: calc(100dvh - 230px);
+  }
+  .review-face {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* fade the last line so clipped text reads as scrollable, not broken */
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+  }
+  .review-face:empty { mask-image: none; }
+
+  /* Centre the deck vertically. Without this the short face-down card sits at
+     the top with a large void above the footer. */
+  #view-review {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: calc(100dvh - 250px);
+  }
+  .review-buttons { flex-direction: row; flex-shrink: 0; }
+  .review-buttons button { min-height: 54px; }
   .saved-row { padding: var(--space-sm); }
-  .saved-row .word { font-size: var(--text-base); }
-
-  .review-card { min-height: 300px; }
-  .review-buttons { flex-direction: column; }
 }

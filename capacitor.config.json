@@ -1,0 +1,25 @@
+{
+  "appId": "com.krocosr.vocab",
+  "appName": "Vocab",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "CapacitorSQLite": {
+      "databaseName": "vocab",
+      "databaseVersion": 1,
+      "encrypted": false,
+      "mode": "no-encryption",
+      "readonly": false
+    },
+    "Preferences": {
+      "group": "vocab"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vocab</string>
+    <string name="title_activity_main">Vocab</string>
+    <string name="package_name">com.krocosr.vocab</string>
+    <string name="custom_url_scheme">com.krocosr.vocab</string>
+</resources>

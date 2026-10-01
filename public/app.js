@@ -1,3 +1,5 @@
+import { store } from './store.js';
+import { refreshEntitlement, purchase, isPro, hasFeature, onEntitlementChange } from './entitlements.js';
 const $ = sel => document.querySelector(sel);
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -5,13 +7,6 @@ const el = (tag, cls, text) => {
   if (text != null) e.textContent = text;
   return e;
 };
-
-async function api(path, opts) {
-  const res = await fetch(path, opts);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || 'request failed'), { body, status: res.status });
-  return body;
-}
 
 /* ---------- dropdown (custom suggestion list) ---------- */
 
@@ -56,18 +51,36 @@ function attachDropdown(input, onPick) {
 
 /* ---------- routing ---------- */
 
-const views = { search: $('#view-search'), saved: $('#view-saved'), review: $('#view-review') };
-
+const views = { search: $('#view-search'), saved: $('#view-saved'), review: $('#view-review'), history: $('#view-history') };
 function route() {
-  const name = { '': 'search', '#/': 'search', '#/saved': 'saved', '#/review': 'review' }[location.hash] ?? 'search';
+  const rawName = { '': 'search', '#/': 'search', '#/saved': 'saved', '#/review': 'review', '#/history': 'history' }[location.hash] ?? 'search';
+  const name = (rawName === 'history' && !hasFeature('review-history')) ? 'search' : rawName;
+  if (rawName !== name) { location.replace('#/'); return; }
   for (const [k, v] of Object.entries(views)) v.hidden = k !== name;
   document.querySelectorAll('[data-nav]').forEach(a =>
     a.classList.toggle('active', a.dataset.nav === name));
   if (name === 'saved') renderSaved();
   if (name === 'review') startReview();
+  if (name === 'history') renderHistory();
   if (name === 'search') refreshSaveState();
+  updateHistoryNav();
 }
 addEventListener('hashchange', route);
+function updateHistoryNav() {
+  const nav = document.querySelector('nav');
+  let historyLink = nav.querySelector('[data-nav="history"]');
+  if (hasFeature('review-history')) {
+    if (!historyLink) {
+      historyLink = el('a', null, 'History');
+      historyLink.href = '#/history';
+      historyLink.dataset.nav = 'history';
+      nav.append(historyLink);
+    }
+    historyLink.hidden = false;
+  } else if (historyLink) {
+    historyLink.hidden = true;
+  }
+}
 
 /* ---------- search ---------- */
 
@@ -93,7 +106,7 @@ input.addEventListener('input', () => {
     suggestAbort?.abort();
     const ac = suggestAbort = new AbortController();
     try {
-      const words = await api(`/api/suggest?q=${encodeURIComponent(q)}`, { signal: ac.signal });
+      const words = await store.suggest(q, { signal: ac.signal });
       if (suggestCache.size > 200) suggestCache.clear();
       suggestCache.set(q, words);
       if (!ac.signal.aborted) searchDrop.open(words);
@@ -112,7 +125,9 @@ async function lookup(word) {
   const box = $('#result');
   box.replaceChildren(el('div', 'empty', 'Looking up…'));
   try {
-    renderCard(await api(`/api/word/${encodeURIComponent(word)}`), box);
+    const entry = await store.getWord(word);
+    if (!entry) throw Object.assign(new Error('not found'), { status: 404 });
+    renderCard(entry, box);
   } catch (e) {
     const card = el('div', 'error-card');
     if (e.status !== 404) {
@@ -137,7 +152,7 @@ const cardState = { word: null, saved: false, btn: null };
 
 async function refreshSaveState() {
   if (!cardState.word || !cardState.btn) return;
-  const rows = await api('/api/words').catch(() => []);
+  const rows = await store.listSaved().catch(() => []);
   const isSaved = rows.some(r => r.word === cardState.word);
   if (isSaved !== cardState.saved) {
     cardState.saved = isSaved;
@@ -188,13 +203,13 @@ function renderCard(entry, mount) {
     if (cardState.saved) {
       saveBtn.disabled = true;
       try {
-        await api(`/api/words/${encodeURIComponent(entry.word)}`, { method: 'DELETE' });
+        await store.unsaveWord(entry.word);
         cardState.saved = false;
         saveBtn.textContent = 'Save';
       } finally { saveBtn.disabled = false; }
       return;
     }
-    const tags = await api('/api/tags').catch(() => []);
+    const tags = await store.listTags().catch(() => []);
     const form = el('span', 'save-form');
     const tagWrap = el('span', 'dd-wrap');
     const tagIn = document.createElement('input');
@@ -217,11 +232,7 @@ function renderCard(entry, mount) {
       ok.disabled = true;
       tagDrop.close();
       try {
-        await api(`/api/words/${encodeURIComponent(entry.word)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag: tagIn.value.trim() || undefined }),
-        });
+        await store.saveWord(entry.word, tagIn.value.trim() || undefined);
         cardState.saved = true;
         saveBtn.textContent = 'Saved';
         form.replaceWith(saveBtn);
@@ -235,6 +246,12 @@ function renderCard(entry, mount) {
     tagIn.focus();
   });
   actions.append(saveBtn);
+  if (entry.saved && hasFeature('review-history')) {
+    const histBtn = el('button', null, 'History');
+    histBtn.type = 'button';
+    histBtn.addEventListener('click', () => showHistoryFor(entry.word));
+    actions.append(histBtn);
+  }
   head.append(actions);
   card.append(head);
 
@@ -332,8 +349,8 @@ async function renderSaved() {
   const box = $('#savedList');
   box.replaceChildren(el('div', 'empty', 'Loading…'));
   const [rows, tags] = await Promise.all([
-    api('/api/words').catch(() => []),
-    api('/api/tags').catch(() => []),
+    store.listSaved().catch(() => []),
+    store.listTags().catch(() => []),
   ]);
   if (!rows.length) {
     box.replaceChildren(el('div', 'empty', 'No saved words yet. Search a word and hit Save.'));
@@ -355,7 +372,44 @@ async function renderSaved() {
     }
     frag.append(bar);
   }
-
+  if (hasFeature('export-list')) {
+    const exportBtn = el('button', 'primary', 'Export CSV');
+    exportBtn.type = 'button';
+    exportBtn.addEventListener('click', async () => {
+      exportBtn.disabled = true;
+      exportBtn.textContent = 'Exporting…';
+      const rows = await store.listSaved().catch(() => []);
+      const csv = ['word,saved_at,tag,review_count,known_count', ...rows.map(r =>
+        [r.word, r.saved_at, r.saved_tag || '', r.review_count || 0, r.known_count || 0].join(',')
+      )].join('\n');
+      // Try download first (works in browser and modern WebView)
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vocab-export-${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      // In Capacitor Android WebView the download attribute may not fire.
+      // Fall back to copying CSV to clipboard so the user can paste it anywhere.
+      if (globalThis.Capacitor?.isNativePlatform?.()) {
+        try {
+          await navigator.clipboard.writeText(csv);
+          exportBtn.textContent = 'Copied!';
+        } catch {
+          exportBtn.textContent = 'Export CSV (copy failed)';
+        }
+      } else {
+        exportBtn.textContent = 'Export CSV';
+      }
+      exportBtn.disabled = false;
+      // Reset button text after a moment
+      setTimeout(() => { if (!exportBtn.disabled) exportBtn.textContent = 'Export CSV'; }, 2000);
+    });
+    frag.append(el('div', 'export-bar', exportBtn));
+  }
   const visible = activeTag ? rows.filter(r => r.saved_tag === activeTag) : rows;
   for (const r of visible) {
     const row = el('div', 'saved-row');
@@ -370,7 +424,7 @@ async function renderSaved() {
     const del = el('button', null, 'Remove');
     del.type = 'button';
     del.addEventListener('click', async () => {
-      await api(`/api/words/${encodeURIComponent(r.word)}`, { method: 'DELETE' });
+      await store.unsaveWord(r.word);
       renderSaved();
     });
     row.append(left, del);
@@ -378,16 +432,76 @@ async function renderSaved() {
   }
   box.replaceChildren(frag);
 }
+/* ---------- history ---------- */
+
+let historyWord = null;
+
+async function renderHistory() {
+  const box = $('#historyList');
+  if (!hasFeature('review-history')) {
+    const children = [el('div', 'empty', 'Review history is a Pro feature.')];
+    if (globalThis.Capacitor?.isNativePlatform?.()) {
+      const btn = el('button', 'primary', 'Upgrade');
+      btn.type = 'button';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Opening…';
+        await purchase();
+        btn.disabled = false;
+        btn.textContent = 'Upgrade';
+      });
+      children.push(btn);
+    }
+    box.replaceChildren(...children);
+    return;
+  }
+  if (!historyWord) {
+    box.replaceChildren(el('div', 'empty', 'Search a word, then open History from its card.'));
+    return;
+  }
+  box.replaceChildren(el('div', 'empty', 'Loading…'));
+  try {
+    const history = await store.listReviewHistory(historyWord).catch(() => []);
+    if (!history.length) {
+      box.replaceChildren(el('div', 'empty', `No review history for “${historyWord}” yet.`));
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    frag.append(el('h2', null, `History for “${historyWord}”`));
+    const list = el('ul', 'history-list');
+    for (const h of history) {
+      const li = el('li', 'history-item');
+      const badge = el('span', 'history-badge ' + (h.known ? 'known' : 'again'), h.known ? 'Knew it' : 'Again');
+      const time = el('time', null, new Date(h.reviewed_at).toLocaleString());
+      li.append(badge, time);
+      list.append(li);
+    }
+    frag.append(list);
+    box.replaceChildren(frag);
+  } catch (e) {
+    box.replaceChildren(el('div', 'empty', 'Could not load history.'));
+  }
+}
+
+function showHistoryFor(word) {
+  if (!hasFeature('review-history')) return;
+  historyWord = word;
+  location.hash = '#/history';
+}
 
 /* ---------- review ---------- */
 
 let queue = [];
 let qi = 0;
+let useSmartReview = false;
 
-async function startReview() {
+async function startReview(smart = false) {
+  useSmartReview = smart;
   const box = $('#reviewCard');
   box.replaceChildren(el('div', 'empty', 'Loading…'));
-  queue = await api('/api/review').catch(() => []);
+  queue = smart
+    ? await store.smartReviewQueue().catch(() => [])
+    : await store.reviewQueue().catch(() => []);
   qi = 0;
   showReviewCard();
 }
@@ -409,7 +523,16 @@ function showReviewCard() {
   const tw = el('div');
   tw.append(el('h1', null, entry.word));
   if (entry.phonetic) tw.append(el('div', 'phonetic', entry.phonetic));
-  top.append(tw, el('div', 'meta', `${qi + 1} / ${queue.length}`));
+  const meta = el('div', 'meta');
+  meta.textContent = `${qi + 1} / ${queue.length}`;
+  top.append(tw, meta);
+  if (hasFeature('smart-review')) {
+    const toggle = el('button', 'smart-toggle' + (useSmartReview ? ' active' : ''), useSmartReview ? 'Smart Review: ON' : 'Smart Review: OFF');
+    toggle.type = 'button';
+    toggle.title = 'Toggle Smart Review (prioritizes wrong answers + recency)';
+    toggle.addEventListener('click', () => startReview(!useSmartReview));
+    top.append(toggle);
+  }
   card.append(top);
 
   const face = el('div', 'review-face');
@@ -421,14 +544,16 @@ function showReviewCard() {
     body.append(el('p', 'lede', first?.text ?? '(no definition cached)'));
     if (entry.origin) body.append(el('p', 'example', entry.origin));
     face.replaceChildren(body);
+    // Revealed text is usually taller than the face; centred content would
+    // overflow upward and clip its first line under the card heading.
+    face.classList.add('revealed');
+    face.scrollTop = 0;
     const btns = el('div', 'review-buttons');
     for (const [label, known] of [['Again', false], ['Knew it', true]]) {
       const b = el('button', known ? 'primary' : null, label);
       b.type = 'button';
       b.addEventListener('click', async () => {
-        await api(`/api/words/${encodeURIComponent(entry.word)}/review`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ known }),
-        }).catch(() => {});
+        await store.recordReview(entry.word, known).catch(() => {});
         qi++;
         showReviewCard();
       });
@@ -440,5 +565,44 @@ function showReviewCard() {
   card.append(face);
   box.replaceChildren(card);
 }
+
+/* ---------- upgrade (native only, hidden once unlocked) ---------- */
+
+
+function mountUpgrade() {
+  const btn = $('#upgradeBtn');
+  if (!btn) return;
+  // Billing only exists in the Android build; on web there is nothing to buy,
+  // so the control is removed rather than left as a dead button.
+  if (!globalThis.Capacitor?.isNativePlatform?.()) { btn.remove(); return; }
+  const sync = () => { btn.hidden = isPro(); };
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+    const bought = await purchase();
+    if (!bought) { btn.textContent = 'Upgrade'; }
+    btn.disabled = false;
+    sync();
+  });
+  onEntitlementChange(sync);
+  void refreshEntitlement().then(sync);
+  sync();
+}
+
+mountUpgrade();
+
+// Listen for entitlement changes and refresh relevant UI
+onEntitlementChange(() => {
+  // Refresh saved view if visible (Export button)
+  if (!views.saved.hidden) renderSaved();
+  // Refresh review view if visible (Smart Review toggle)
+  if (!views.review.hidden) startReview(useSmartReview);
+  // Refresh history view if visible
+  if (!views.history.hidden) renderHistory();
+  // Refresh current word card (History button)
+  if (cardState.word && !views.search.hidden) refreshSaveState();
+  // Update History nav link visibility
+  updateHistoryNav();
+});
 
 route();
